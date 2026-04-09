@@ -1,0 +1,44 @@
+import { redirect } from '@sveltejs/kit';
+import { STRIPE_CLIENT_ID } from '$env/static/private';
+import type { RequestHandler } from './$types';
+import { env } from '$lib/env';
+import { resolveOrCreateOrganization } from '$lib/server/organizations';
+
+function buildState(orgId: string, next: string): string {
+	return Buffer.from(JSON.stringify({ orgId, next }), 'utf8').toString('base64url');
+}
+
+function sanitizeNext(value: string | null): string {
+	if (typeof value !== 'string' || !value.startsWith('/dashboard')) {
+		return '/dashboard';
+	}
+
+	return value;
+}
+
+export const GET: RequestHandler = async ({ locals, url }) => {
+	const userId = locals.session?.userId;
+
+	if (!userId) {
+		const signInUrl = new URL('/sign-in', url.origin);
+		signInUrl.searchParams.set('redirectUrl', '/dashboard/connect');
+		throw redirect(307, signInUrl.toString());
+	}
+
+	const organization = await resolveOrCreateOrganization(locals.session);
+
+	if (!organization) {
+		throw redirect(303, '/dashboard/connect?error=create_org_first');
+	}
+
+	const next = sanitizeNext(url.searchParams.get('next'));
+	const redirectUri = new URL('/api/stripe/callback', env.publicAppUrl).toString();
+	const oauthUrl = new URL('https://connect.stripe.com/oauth/authorize');
+	oauthUrl.searchParams.set('response_type', 'code');
+	oauthUrl.searchParams.set('client_id', STRIPE_CLIENT_ID);
+	oauthUrl.searchParams.set('scope', env.stripeConnectScope);
+	oauthUrl.searchParams.set('state', buildState(organization.id, next));
+	oauthUrl.searchParams.set('redirect_uri', redirectUri);
+
+	throw redirect(307, oauthUrl.toString());
+};
