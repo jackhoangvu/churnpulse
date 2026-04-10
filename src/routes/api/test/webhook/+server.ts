@@ -1,21 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
 import { json } from '@sveltejs/kit';
-import type Stripe from 'stripe';
+import type Polar from 'stripe';
 import type { RequestHandler } from './$types';
 import { env } from '$lib/env';
+import { admin } from '$lib/server/admin';
 import { handleApiError } from '$lib/server/error-handler';
 import { checkRateLimit } from '$lib/server/rate-limiter';
 import { log, logError } from '$lib/server/logger';
 import { toOrganizationUserId } from '$lib/server/organizations';
-import { processStripeEvent } from '$lib/server/stripe-webhook';
-import type { Database, OrganizationRow } from '$lib/types/supabase';
-
-const admin = createClient<Database, 'public'>(env.supabaseUrl, env.supabaseServiceRoleKey, {
-	auth: {
-		autoRefreshToken: false,
-		persistSession: false
-	}
-});
+import { processPolarEvent } from '$lib/server/polar-webhook';
+import type { OrganizationRow } from '$lib/types/supabase';
 
 async function resolveOrganization(orgId?: string): Promise<OrganizationRow | null> {
 	if (orgId) {
@@ -33,11 +26,11 @@ async function resolveOrganization(orgId?: string): Promise<OrganizationRow | nu
 	return data as unknown as OrganizationRow | null;
 }
 
-function buildTestEvent(eventType: string, org: OrganizationRow): Stripe.Event {
+function buildTestEvent(eventType: string, org: OrganizationRow): Polar.Event {
 	const base = {
 		id: `evt_test_${crypto.randomUUID().replaceAll('-', '')}`,
 		object: 'event',
-		account: org.stripe_account_id ?? undefined,
+		account: org.polar_account_id ?? undefined,
 		api_version: '2025-09-30.clover',
 		created: Math.floor(Date.now() / 1000),
 		livemode: false,
@@ -66,7 +59,7 @@ function buildTestEvent(eventType: string, org: OrganizationRow): Stripe.Event {
 					}
 				}
 			}
-		} as unknown as Stripe.Event;
+		} as unknown as Polar.Event;
 	}
 
 	if (eventType === 'customer.subscription.updated') {
@@ -93,7 +86,7 @@ function buildTestEvent(eventType: string, org: OrganizationRow): Stripe.Event {
 					}
 				}
 			}
-		} as unknown as Stripe.Event;
+		} as unknown as Polar.Event;
 	}
 
 	if (eventType === 'customer.subscription.deleted') {
@@ -115,7 +108,7 @@ function buildTestEvent(eventType: string, org: OrganizationRow): Stripe.Event {
 					}
 				}
 			}
-		} as unknown as Stripe.Event;
+		} as unknown as Polar.Event;
 	}
 
 	throw new Error('Unsupported test event type');
@@ -172,7 +165,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		}
 
 		const event = buildTestEvent(body.event_type, organization);
-		const result = await processStripeEvent(event);
+		const result = await processPolarEvent(event);
 
 		log('info', 'test-webhook', 'Generated test webhook event', {
 			org_id: organization.id,
