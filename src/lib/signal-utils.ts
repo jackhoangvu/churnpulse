@@ -7,7 +7,8 @@ export const signalTypes: SignalType[] = [
 	'downgraded',
 	'paused',
 	'cancelled',
-	'high_mrr_risk'
+	'high_mrr_risk',
+	'trial_ending'
 ];
 
 export const signalStatuses: SignalStatus[] = [
@@ -37,6 +38,7 @@ export function toSignalStatus(value: string): SignalStatus {
 export function toSignal(row: ChurnSignalRow): ChurnSignal {
 	return {
 		...row,
+		provider: (row.provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: toSignalType(row.signal_type),
 		status: toSignalStatus(row.status),
 		metadata: row.metadata

@@ -1,4 +1,3 @@
-import type { Writable } from 'svelte/store';
 import type { OrganizationRow } from '$lib/types/supabase';
 
 export type DashboardUser = {
@@ -8,10 +7,10 @@ export type DashboardUser = {
 };
 
 export type DashboardLayoutContext = {
-	org: Writable<OrganizationRow | null>;
-	user: Writable<DashboardUser | null>;
-	isConnected: Writable<boolean>;
-	unreadSignalCount: Writable<number>;
+	org: OrganizationRow | null;
+	user: DashboardUser | null;
+	isConnected: boolean;
+	unreadSignalCount: number;
 };
 
 export const dashboardLayoutContextKey = Symbol('dashboard-layout-context');

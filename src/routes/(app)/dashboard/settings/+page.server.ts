@@ -1,12 +1,15 @@
-import { Buffer } from 'node:buffer';
-import { createClient } from '@supabase/supabase-js';
 import { fail } from '@sveltejs/kit';
-import { STRIPE_CLIENT_ID, STRIPE_SECRET_KEY } from '$env/static/private';
 import type { Actions, PageServerLoad } from './$types';
 import { env } from '$lib/env';
+import {
+	getProviderConnection,
+	removeProviderConnection,
+	upsertProviderConnection
+} from '$lib/provider-utils';
+import { admin } from '$lib/server/admin';
 import { resolveOrganization as resolveStoredOrganization } from '$lib/server/organizations';
-import type { Database, Json, OrganizationRow } from '$lib/types/supabase';
 import type { SignalType } from '$lib/types';
+import type { Json, OrganizationRow } from '$lib/types/supabase';
 
 type SequencePreferences = Record<SignalType, boolean>;
 type NotificationPreferences = {
@@ -17,15 +20,9 @@ type NotificationPreferences = {
 type OrgMetadata = {
 	sequence_preferences?: Partial<SequencePreferences>;
 	notifications?: Partial<NotificationPreferences>;
+	polar_connected_at?: string;
 	stripe_connected_at?: string;
 };
-
-const admin = createClient<Database, 'public'>(env.supabaseUrl, env.supabaseServiceRoleKey, {
-	auth: {
-		autoRefreshToken: false,
-		persistSession: false
-	}
-});
 
 const signalTypes: SignalType[] = [
 	'card_failed',
@@ -33,16 +30,20 @@ const signalTypes: SignalType[] = [
 	'downgraded',
 	'paused',
 	'cancelled',
-	'high_mrr_risk'
+	'high_mrr_risk',
+	'trial_ending'
 ];
+
 const defaultSequencePreferences: SequencePreferences = {
 	card_failed: true,
 	disengaged: true,
 	downgraded: true,
 	paused: true,
 	cancelled: true,
-	high_mrr_risk: true
+	high_mrr_risk: true,
+	trial_ending: true
 };
+
 const defaultNotifications: NotificationPreferences = {
 	alert_email: '',
 	high_mrr_alerts_enabled: true,
@@ -50,7 +51,7 @@ const defaultNotifications: NotificationPreferences = {
 };
 
 function parseMetadata(value: Json | null): OrgMetadata {
-	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		return {};
 	}
 
@@ -129,6 +130,10 @@ function sequenceStepCopy(type: SignalType): string {
 		return '3 steps: 7d reminder, 14d follow-up, 21d final reactivation';
 	}
 
+	if (type === 'trial_ending') {
+		return '1 step: immediate conversion nudge before the trial ends';
+	}
+
 	return '1 step: founder-level outreach';
 }
 
@@ -143,11 +148,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 		return {
 			title: 'Settings',
 			breadcrumb: ['ChurnPulse', 'Settings'],
+			appUrl: env.publicAppUrl,
 			org: null,
-			stripe: {
+			polar: {
 				connected: false,
 				accountId: null,
+				organizationId: null,
 				connectedAt: null
+			},
+			integrations: {
+				stripe: { connected: false, accountId: null },
+				paddle: { connected: false, accountId: null },
+				lemonsqueezy: { connected: false, accountId: null }
 			},
 			sequencePreferences: defaultSequencePreferences,
 			sequenceSteps: signalTypes.map((type) => ({
@@ -159,19 +171,55 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	const metadata = parseMetadata(organization.metadata);
+	const polarConnection = getProviderConnection(organization.providers, 'polar');
+	const stripeConnection = getProviderConnection(organization.providers, 'stripe');
+	const paddleConnection = getProviderConnection(organization.providers, 'paddle');
+	const lemonSqueezyConnection = getProviderConnection(organization.providers, 'lemonsqueezy');
+	const legacyPolarConnected = Boolean(
+		organization.polar_account_id ||
+			organization.polar_organization_id ||
+			organization.polar_access_token
+	);
 
 	return {
 		title: 'Settings',
 		breadcrumb: ['ChurnPulse', 'Settings'],
+		appUrl: env.publicAppUrl,
 		org: {
 			id: organization.id,
 			name: organization.name ?? 'ChurnPulse workspace',
 			createdAt: organization.created_at
 		},
-		stripe: {
-			connected: Boolean(organization.stripe_account_id),
-			accountId: organization.stripe_account_id,
-			connectedAt: metadata.stripe_connected_at ?? organization.created_at
+		polar: {
+			connected: legacyPolarConnected || Boolean(polarConnection),
+			accountId:
+				organization.polar_account_id ??
+				organization.polar_organization_id ??
+				polarConnection?.account_id ??
+				null,
+			organizationId:
+				organization.polar_organization_id ??
+				organization.polar_account_id ??
+				polarConnection?.account_id ??
+				null,
+			connectedAt:
+				metadata.polar_connected_at ??
+				polarConnection?.connected_at ??
+				(legacyPolarConnected ? organization.created_at : null)
+		},
+		integrations: {
+			stripe: {
+				connected: Boolean(stripeConnection),
+				accountId: stripeConnection?.account_id ?? null
+			},
+			paddle: {
+				connected: Boolean(paddleConnection),
+				accountId: paddleConnection?.account_id ?? null
+			},
+			lemonsqueezy: {
+				connected: Boolean(lemonSqueezyConnection),
+				accountId: lemonSqueezyConnection?.account_id ?? null
+			}
 		},
 		sequencePreferences: mergeSequencePreferences(metadata),
 		sequenceSteps: signalTypes.map((type) => ({
@@ -210,7 +258,7 @@ export const actions: Actions = {
 		return { message: 'Workspace name updated.' };
 	},
 
-	disconnectStripe: async ({ request, locals }) => {
+	disconnectPolar: async ({ request, locals }) => {
 		const organization = await resolveOrganization(locals.session?.userId);
 		const formData = await request.formData();
 		const confirmation = formData.get('confirmation');
@@ -223,43 +271,27 @@ export const actions: Actions = {
 			return fail(400, { message: 'Type disconnect to confirm this action.' });
 		}
 
-		if (organization.stripe_account_id) {
-			const response = await fetch('https://connect.stripe.com/oauth/deauthorize', {
-				method: 'POST',
-				headers: {
-					Authorization: `Basic ${Buffer.from(`${STRIPE_SECRET_KEY}:`).toString('base64')}`,
-					'content-type': 'application/x-www-form-urlencoded'
-				},
-				body: new URLSearchParams({
-					client_id: STRIPE_CLIENT_ID,
-					stripe_user_id: organization.stripe_account_id
-				})
-			});
-
-			if (!response.ok) {
-				return fail(500, { message: 'Stripe disconnect could not be completed.' });
-			}
-		}
-
 		const metadata = parseMetadata(organization.metadata);
-		delete metadata.stripe_connected_at;
+		delete metadata.polar_connected_at;
 
 		const { error } = await admin
 			.from('organizations')
 			.update({
 				metadata: metadata as Json,
-				stripe_account_id: null,
-				stripe_access_token: null,
-				stripe_refresh_token: null,
-				stripe_webhook_secret: null
+				providers: removeProviderConnection(organization.providers, 'polar') as unknown as Json,
+				polar_account_id: null,
+				polar_access_token: null,
+				polar_refresh_token: null,
+				polar_webhook_secret: null,
+				polar_organization_id: null
 			} as never)
 			.eq('id', organization.id);
 
 		if (error) {
-			return fail(500, { message: 'Stripe fields could not be cleared from this workspace.' });
+			return fail(500, { message: 'Polar fields could not be cleared from this workspace.' });
 		}
 
-		return { message: 'Stripe disconnected successfully.' };
+		return { message: 'Polar disconnected successfully.' };
 	},
 
 	updateSequencePreferences: async ({ request, locals }) => {
@@ -312,7 +344,8 @@ export const actions: Actions = {
 			const parsed = JSON.parse(rawNotifications) as Partial<NotificationPreferences>;
 			await updateOrgMetadata(organization, {
 				notifications: {
-					alert_email: typeof parsed.alert_email === 'string' ? parsed.alert_email.trim() : '',
+					alert_email:
+						typeof parsed.alert_email === 'string' ? parsed.alert_email.trim() : '',
 					high_mrr_alerts_enabled: parseBoolean(parsed.high_mrr_alerts_enabled),
 					daily_digest_enabled: parseBoolean(parsed.daily_digest_enabled)
 				}
@@ -364,5 +397,73 @@ export const actions: Actions = {
 				sequenceScheduled: Boolean(payload.sequence_scheduled)
 			}
 		};
+	},
+
+	savePaddleSecret: async ({ request, locals }) => {
+		const organization = await resolveOrganization(locals.session?.userId);
+		const formData = await request.formData();
+		const secret = formData.get('secret');
+
+		if (!organization) {
+			return fail(404, { message: 'Workspace not found.' });
+		}
+
+		if (typeof secret !== 'string' || !secret.trim()) {
+			return fail(400, { message: 'Enter a valid Paddle signing secret.' });
+		}
+
+		const providers = upsertProviderConnection(organization.providers, {
+			type: 'paddle',
+			account_id: 'paddle',
+			access_token: '',
+			webhook_secret: secret.trim(),
+			connected_at: new Date().toISOString(),
+			status: 'active'
+		});
+
+		const { error } = await admin
+			.from('organizations')
+			.update({ providers: providers as unknown as Json } as never)
+			.eq('id', organization.id);
+
+		if (error) {
+			return fail(500, { message: 'Could not save Paddle secret.' });
+		}
+
+		return { message: 'Paddle webhook secret saved.' };
+	},
+
+	saveLemonSqueezySecret: async ({ request, locals }) => {
+		const organization = await resolveOrganization(locals.session?.userId);
+		const formData = await request.formData();
+		const secret = formData.get('secret');
+
+		if (!organization) {
+			return fail(404, { message: 'Workspace not found.' });
+		}
+
+		if (typeof secret !== 'string' || !secret.trim()) {
+			return fail(400, { message: 'Enter a valid Lemon Squeezy signing secret.' });
+		}
+
+		const providers = upsertProviderConnection(organization.providers, {
+			type: 'lemonsqueezy',
+			account_id: 'lemonsqueezy',
+			access_token: '',
+			webhook_secret: secret.trim(),
+			connected_at: new Date().toISOString(),
+			status: 'active'
+		});
+
+		const { error } = await admin
+			.from('organizations')
+			.update({ providers: providers as unknown as Json } as never)
+			.eq('id', organization.id);
+
+		if (error) {
+			return fail(500, { message: 'Could not save Lemon Squeezy secret.' });
+		}
+
+		return { message: 'Lemon Squeezy webhook secret saved.' };
 	}
 };

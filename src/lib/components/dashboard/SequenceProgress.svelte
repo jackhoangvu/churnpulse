@@ -21,7 +21,8 @@
 		disengaged: 3,
 		downgraded: 2,
 		high_mrr_risk: 2,
-		paused: 2
+		paused: 2,
+		trial_ending: 1
 	};
 
 	let { emails, signalType }: Props = $props();
@@ -108,11 +109,11 @@
 	);
 </script>
 
-<div class="progress" aria-label={`Sequence progress for ${signalType}`}>
+<div class="sequence-progress" aria-label={`Sequence progress for ${signalType}`}>
 	{#each steps as step, index (step.index)}
-		<div class="step">
-			<div class="step-track">
-				<div class="circle" data-state={step.state}>
+		<div class="sequence-progress__step">
+			<div class="sequence-progress__track">
+				<div class="sequence-progress__circle" data-state={step.state}>
 					{#if step.state === 'sent'}
 						<svg viewBox="0 0 16 16" aria-hidden="true">
 							<path
@@ -128,111 +129,14 @@
 				</div>
 
 				{#if index < steps.length - 1}
-					<div class="connector"></div>
+					<div class="sequence-progress__connector"></div>
 				{/if}
 			</div>
 
-			<div class="copy">
-				<p class="label">{step.label}</p>
-				<p class="time">{step.timeLabel}</p>
+			<div class="sequence-progress__copy">
+				<p class="sequence-progress__label">{step.label}</p>
+				<p class="sequence-progress__time">{step.timeLabel}</p>
 			</div>
 		</div>
 	{/each}
 </div>
-
-<style>
-	.progress {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-		gap: 0.75rem;
-	}
-
-	.step {
-		min-width: 0;
-	}
-
-	.step-track {
-		display: flex;
-		align-items: center;
-		margin-bottom: 0.45rem;
-	}
-
-	.circle {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.2rem;
-		height: 1.2rem;
-		border: 1px solid rgba(255, 255, 255, 0.16);
-		border-radius: 999px;
-		background: transparent;
-		color: var(--bg-base);
-		flex: none;
-	}
-
-	.circle svg {
-		width: 0.85rem;
-		height: 0.85rem;
-	}
-
-	.circle[data-state='sent'] {
-		border-color: var(--accent-cyan);
-		background: var(--accent-cyan);
-		color: var(--bg-base);
-	}
-
-	.circle[data-state='current'] {
-		border-color: var(--accent-cyan);
-		box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.4);
-		animation: progress-pulse 1.7s ease-out infinite;
-	}
-
-	.circle[data-state='failed'] {
-		border-color: var(--status-danger);
-		box-shadow: 0 0 0 0 rgba(255, 68, 89, 0.3);
-	}
-
-	.connector {
-		height: 1px;
-		flex: 1;
-		margin-left: 0.45rem;
-		background: rgba(255, 255, 255, 0.12);
-	}
-
-	.copy {
-		min-width: 0;
-	}
-
-	.label,
-	.time {
-		margin: 0;
-	}
-
-	.label {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 10px;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-muted);
-	}
-
-	.time {
-		margin-top: 0.22rem;
-		font-size: 11px;
-		color: var(--text-secondary);
-	}
-
-	@keyframes progress-pulse {
-		0% {
-			box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.38);
-		}
-
-		70% {
-			box-shadow: 0 0 0 8px rgba(0, 229, 255, 0);
-		}
-
-		100% {
-			box-shadow: 0 0 0 0 rgba(0, 229, 255, 0);
-		}
-	}
-</style>

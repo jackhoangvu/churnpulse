@@ -81,12 +81,14 @@
 
 	function handleIncomingSignal(signal: ChurnSignal): void {
 		const label = SIGNAL_CONFIGS[signal.signal_type].label;
-		const customerName = signal.customer_name ?? signal.customer_email ?? 'Stripe customer';
+		const customerName = signal.customer_name ?? signal.customer_email ?? 'Polar customer';
 		const amount = currencyFormatter.format(signal.mrr_amount / 100);
 		const message = `New ${label.toLowerCase()} signal: ${customerName} — ${amount}/mo at risk`;
 
 		addToast(message);
-		context?.unreadSignalCount.update((count) => count + 1);
+		if (context) {
+			context.unreadSignalCount += 1;
+		}
 		dispatch('new-signal', signal);
 		void playBeep();
 	}
@@ -162,56 +164,9 @@
 	<div class="signal-feed-toasts" aria-live="polite" aria-atomic="true">
 		{#each toasts as toast (toast.id)}
 			<div class="signal-toast">
-				<div class="signal-toast-accent"></div>
-				<p>{toast.message}</p>
+				<div class="signal-toast__accent"></div>
+				<p class="signal-toast__message">{toast.message}</p>
 			</div>
 		{/each}
 	</div>
 {/if}
-
-<style>
-	.signal-feed-toasts {
-		position: fixed;
-		right: 1.25rem;
-		bottom: 1.25rem;
-		z-index: 50;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		max-width: min(22rem, calc(100vw - 2rem));
-	}
-
-	.signal-toast {
-		display: grid;
-		grid-template-columns: 3px 1fr;
-		border: 1px solid rgba(0, 229, 255, 0.14);
-		background: rgba(17, 17, 19, 0.96);
-		box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
-		backdrop-filter: blur(14px);
-		animation: slide-up 180ms ease-out;
-	}
-
-	.signal-toast-accent {
-		background: var(--accent-cyan);
-	}
-
-	.signal-toast p {
-		margin: 0;
-		padding: 0.9rem 1rem;
-		font-size: 0.9rem;
-		line-height: 1.5;
-		color: var(--text-primary);
-	}
-
-	@keyframes slide-up {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-</style>

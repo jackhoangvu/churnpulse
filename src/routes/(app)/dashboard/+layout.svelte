@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { setContext } from 'svelte';
 	import { page } from '$app/state';
-	import { writable } from 'svelte/store';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
+	import MobileNav from '$lib/components/layout/MobileNav.svelte';
 	import SignalFeed from '$lib/components/realtime/SignalFeed.svelte';
 	import {
 		dashboardLayoutContextKey,
@@ -17,26 +17,22 @@
 
 	let { data, children }: Props = $props();
 	const isOnboardingRoute = $derived(page.url.pathname === '/dashboard/onboarding');
-	const orgStore = writable<LayoutData['org']>(null);
-	const userStore = writable<LayoutData['user']>(null);
-	const isConnectedStore = writable(false);
-	const unreadSignalCountStore = writable(0);
-	const dashboardContext: DashboardLayoutContext = {
-		org: orgStore,
-		user: userStore,
-		isConnected: isConnectedStore,
-		unreadSignalCount: unreadSignalCountStore
-	};
+	const dashboardContext = $state<DashboardLayoutContext>({
+		org: null,
+		user: null,
+		isConnected: false,
+		unreadSignalCount: 0
+	});
 
 	setContext(dashboardLayoutContextKey, dashboardContext);
 
 	$effect(() => {
-		orgStore.set(data.org);
-		userStore.set(data.user);
-		isConnectedStore.set(data.isConnected);
+		dashboardContext.org = data.org;
+		dashboardContext.user = data.user;
+		dashboardContext.isConnected = data.isConnected;
 
 		if (!data.isConnected) {
-			unreadSignalCountStore.set(0);
+			dashboardContext.unreadSignalCount = 0;
 		}
 	});
 </script>
@@ -48,22 +44,18 @@
 
 	<AppShell orgName={data.org?.name ?? 'ChurnPulse workspace'}>
 		{#snippet headerActions()}
-			<div class="flex items-center gap-3">
-				<a
-					class="border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:border-[var(--border-accent)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
-					href="/dashboard/sequences"
-				>
+			<div class="dashboard-header-actions" id="dashboard-header-actions">
+				<a class="btn btn-secondary btn-sm" href="/dashboard/sequences" id="dashboard-open-sequences">
 					Open sequences
 				</a>
-				<a
-					class="border border-[var(--accent-cyan-border)] bg-[var(--accent-cyan-dim)] px-3 py-2 text-sm text-[var(--accent-cyan)] transition hover:bg-[rgba(0,229,255,0.22)]"
-					href="/dashboard/signals"
-				>
+				<a class="btn btn-primary btn-sm" href="/dashboard/signals" id="dashboard-review-signals">
 					Review live signals
 				</a>
 			</div>
 		{/snippet}
 
 		{@render children()}
+
+		<MobileNav unreadCount={dashboardContext.unreadSignalCount} />
 	</AppShell>
 {/if}

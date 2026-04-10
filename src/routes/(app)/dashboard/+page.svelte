@@ -56,7 +56,8 @@
 		'downgraded',
 		'paused',
 		'cancelled',
-		'high_mrr_risk'
+		'high_mrr_risk',
+		'trial_ending'
 	];
 	const signalColors: Record<SignalType, string> = {
 		card_failed: '#FF4459',
@@ -64,14 +65,15 @@
 		downgraded: '#FF8C42',
 		paused: '#4A9EFF',
 		cancelled: 'rgba(255,68,89,0.66)',
-		high_mrr_risk: '#FF0033'
+		high_mrr_risk: '#FF0033',
+		trial_ending: '#A78BFA'
 	};
 	const errorMessages: Record<string, string> = {
-		access_denied: 'Stripe connection was cancelled before authorization completed.',
-		connect_failed: 'Stripe connection could not be completed. Please try again.',
-		create_org_first: 'Create your ChurnPulse workspace before connecting Stripe.',
-		missing_code: 'Stripe did not return an authorization code. Please retry the connection.',
-		token_exchange_failed: 'Stripe authorization succeeded, but token exchange failed.'
+		access_denied: 'Polar connection was cancelled before authorization completed.',
+		connect_failed: 'Polar connection could not be completed. Please try again.',
+		create_org_first: 'Create your ChurnPulse workspace before connecting Polar.',
+		missing_code: 'Polar did not return an authorization code. Please retry the connection.',
+		token_exchange_failed: 'Polar authorization succeeded, but token exchange failed.'
 	};
 
 	let { data, form }: Props = $props();
@@ -187,7 +189,7 @@
 			return {
 				key: 'success:connected',
 				kind: 'success',
-				message: 'Stripe connected successfully'
+				message: 'Polar connected successfully'
 			};
 		}
 
@@ -299,14 +301,14 @@
 	<title>Dashboard | ChurnPulse</title>
 	<meta
 		name="description"
-		content="Monitor at-risk revenue, recovery progress, and recent churn signals across your Stripe-connected ChurnPulse workspace."
+		content="Monitor at-risk revenue, recovery progress, and recent churn signals across your Polar-connected ChurnPulse workspace."
 	/>
 </svelte:head>
 
 {#if !connected}
 	<section class="dashboard-page dashboard-centered">
-		<div class="connect-card">
-			<div class="connect-icon" aria-hidden="true">
+		<div class="dashboard-page__connect-card card card-brand">
+			<div class="dashboard-page__connect-icon" aria-hidden="true">
 				<svg viewBox="0 0 64 64" fill="none">
 					<path
 						d="M10 20h24c8 0 12 4 12 12s-4 12-12 12H10V20Zm22 18c4.7 0 7-2 7-6s-2.3-6-7-6H17v12h15Z"
@@ -319,65 +321,100 @@
 					/>
 				</svg>
 			</div>
-			<h2 class="connect-title">Connect your Stripe account</h2>
-			<p class="connect-copy">
+			<h2 class="dashboard-page__connect-title">Connect your Polar account</h2>
+			<p class="dashboard-page__connect-copy">
 				Read-only access. 60-second setup. See your at-risk customers immediately.
 			</p>
 
-			<ol class="connect-steps">
-				<li><span>1</span> Click Connect Stripe</li>
-				<li><span>2</span> Authorize Stripe access</li>
-				<li><span>3</span> See signals within minutes</li>
+			<ol class="dashboard-page__connect-steps">
+				<li class="dashboard-page__connect-step">
+					<span class="dashboard-page__connect-step-index">1</span>
+					<span>Click Connect Polar</span>
+				</li>
+				<li class="dashboard-page__connect-step">
+					<span class="dashboard-page__connect-step-index">2</span>
+					<span>Authorize Polar access</span>
+				</li>
+				<li class="dashboard-page__connect-step">
+					<span class="dashboard-page__connect-step-index">3</span>
+					<span>See signals within minutes</span>
+				</li>
 			</ol>
 
-			<a class="connect-button" href="/api/stripe/connect">Connect Stripe</a>
-			<p class="connect-footnote">
-				We never store your Stripe secret key. Access is granted through Stripe OAuth.
+			<a class="btn btn-primary btn-full dashboard-page__connect-button" href="/api/polar/connect">
+				Connect Polar
+			</a>
+			<p class="dashboard-page__connect-footnote">
+				We never store your Polar secret key. Access is granted through Polar OAuth.
 			</p>
 		</div>
 	</section>
 {:else if stats}
 	<section class="dashboard-page">
-		<div class="metric-grid">
+		<div class="dashboard-page__metrics">
 			{#each metricCards as metric (metric.label)}
-				<article class="metric-card">
-					<p class="metric-label">{metric.label}</p>
-					<p class={`metric-value ${metric.valueClass}`.trim()}>{metric.value}</p>
-					<p class="metric-delta">{metric.delta}</p>
+				<article class="dashboard-page__metric-card card">
+					<p class="dashboard-page__metric-label">{metric.label}</p>
+					<p
+						class={`dashboard-page__metric-value ${
+							metric.valueClass === 'metric-value-success'
+								? 'dashboard-page__metric-value--success'
+								: metric.valueClass === 'metric-value-warning'
+									? 'dashboard-page__metric-value--warning'
+									: metric.valueClass === 'metric-value-danger'
+										? 'dashboard-page__metric-value--danger'
+										: ''
+						}`.trim()}
+					>
+						{metric.value}
+					</p>
+					<p class="dashboard-page__metric-delta">{metric.delta}</p>
 				</article>
 			{/each}
 		</div>
 
-		<div class="analytics-grid">
-			<section class="panel">
-				<div class="panel-header">
+		<div class="dashboard-page__analytics">
+			<section class="dashboard-page__panel card">
+				<div class="dashboard-page__panel-header">
 					<p class="section-label">Signal Breakdown</p>
 				</div>
 
-				<div class="breakdown-list">
+				<div class="dashboard-page__breakdown-list">
 					{#each breakdownItems as item (item.type)}
-						<div class="breakdown-row">
-							<p class="breakdown-label">{item.label}</p>
-							<div class="breakdown-track">
-								<div
-									class="breakdown-bar"
-									style={`--bar-color: ${item.color}; width: ${(item.count / maxBreakdownCount) * 100}%`}
-								></div>
+						<div class="dashboard-page__breakdown-row">
+							<p class="dashboard-page__breakdown-label">{item.label}</p>
+							<div class="dashboard-page__breakdown-track">
+								<svg
+									class="dashboard-page__breakdown-track"
+									viewBox="0 0 100 6"
+									preserveAspectRatio="none"
+									aria-hidden="true"
+								>
+									<rect x="0" y="0" width="100" height="6" rx="3" fill="rgba(255,255,255,0.06)"></rect>
+									<rect
+										x="0"
+										y="0"
+										width={(item.count / maxBreakdownCount) * 100}
+										height="6"
+										rx="3"
+										fill={item.color}
+									></rect>
+								</svg>
 							</div>
-							<p class="breakdown-count">{formatCount(item.count)}</p>
+							<p class="dashboard-page__breakdown-count">{formatCount(item.count)}</p>
 						</div>
 					{/each}
 				</div>
 			</section>
 
-			<section class="panel">
-				<div class="panel-header">
+			<section class="dashboard-page__panel card">
+				<div class="dashboard-page__panel-header">
 					<p class="section-label">7-Day Activity</p>
 				</div>
 
-				<div class="sparkline-card">
+				<div class="dashboard-page__sparkline">
 					<svg
-						class="sparkline-svg"
+						class="dashboard-page__sparkline-svg"
 						viewBox="0 0 320 80"
 						role="img"
 						aria-label="Seven day churn signal activity"
@@ -390,7 +427,13 @@
 						</defs>
 
 						{#each sparklineGeometry.gridLines as y}
-							<line x1="10" x2="310" y1={y} y2={y} class="sparkline-grid"></line>
+							<line
+								x1="10"
+								x2="310"
+								y1={y}
+								y2={y}
+								class="dashboard-page__sparkline-grid"
+							></line>
 						{/each}
 
 						{#if sparklineGeometry.area}
@@ -400,7 +443,7 @@
 						{#if sparklineGeometry.points}
 							<polyline
 								points={sparklineGeometry.points}
-								class="sparkline-line"
+								class="dashboard-page__sparkline-line"
 								fill="none"
 								stroke-linecap="round"
 								stroke-linejoin="round"
@@ -408,82 +451,93 @@
 						{/if}
 					</svg>
 
-					<div class="sparkline-labels" aria-hidden="true">
+					<div class="dashboard-page__sparkline-labels" aria-hidden="true">
 						{#each stats.sparkline as point (point.date)}
-							<span>{point.label}</span>
+							<span class="dashboard-page__sparkline-label">{point.label}</span>
 						{/each}
 					</div>
 				</div>
 			</section>
 		</div>
 
-		<section class="signals-section">
-			<div class="signals-header">
+		<section class="dashboard-page__signals">
+			<div class="dashboard-page__signals-header">
 				<p class="section-label">Recent Signals</p>
-				<a class="signals-link" href="/dashboard/sequences">View all →</a>
+				<a class="dashboard-page__link" href="/dashboard/sequences">View all →</a>
 			</div>
 
 			{#if recentSignals.length === 0}
-				<div class="empty-state">
-					<svg class="empty-illustration" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+				<div class="dashboard-page__empty">
+					<svg
+						class="dashboard-page__empty-illustration"
+						viewBox="0 0 120 120"
+						fill="none"
+						aria-hidden="true"
+					>
 						<rect x="14" y="18" width="92" height="84" stroke="currentColor" opacity="0.18"></rect>
 						<path d="M30 72 48 54l12 12 28-28" stroke="currentColor" stroke-width="2"></path>
 						<circle cx="48" cy="54" r="4" fill="currentColor"></circle>
 						<circle cx="88" cy="38" r="4" fill="currentColor"></circle>
 					</svg>
-					<p class="empty-title">No signals detected yet.</p>
-					<p class="empty-copy">Connect Stripe to start monitoring.</p>
+					<p class="dashboard-page__empty-title">No signals detected yet.</p>
+					<p class="dashboard-page__empty-copy">Connect Polar to start monitoring.</p>
 				</div>
 			{:else}
-				<div class="table-wrap">
-					<table class="signals-table">
+				<div class="dashboard-page__table-wrap">
+					<table class="dashboard-page__table">
 						<thead>
 							<tr>
 								<th>Customer</th>
 								<th>Signal</th>
-								<th class="align-right">MRR</th>
+								<th class="dashboard-page__align-right">MRR</th>
 								<th>Detected</th>
 								<th>Status</th>
-								<th class="align-right">Actions</th>
+								<th class="dashboard-page__align-right">Actions</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each recentSignals as signal (signal.id)}
 								<tr>
 									<td>
-										<div class="customer-cell">
-											<p class="customer-name">{signal.customer_name ?? 'Stripe customer'}</p>
-											<p class="customer-email">{signal.customer_email ?? 'No email available'}</p>
+										<div class="dashboard-page__customer">
+											<p class="dashboard-page__customer-name">
+												{signal.customer_name ?? 'Polar customer'}
+											</p>
+											<p class="dashboard-page__customer-email">
+												{signal.customer_email ?? 'No email available'}
+											</p>
 										</div>
 									</td>
 									<td>
 										<Badge type={signal.signal_type} size="sm" />
 									</td>
-									<td class="align-right mono-cell">{formatCurrency(signal.mrr_amount)}</td>
+									<td class="dashboard-page__align-right dashboard-page__mono">
+										{formatCurrency(signal.mrr_amount)}
+									</td>
 									<td>
-										<div class="detected-cell">
+										<div class="dashboard-page__detected">
 											<span>{formatRelativeTime(signal.detected_at)}</span>
-											<span class="detected-exact">
+											<span class="dashboard-page__detected-exact">
 												{exactDateFormatter.format(new Date(signal.detected_at))}
 											</span>
 										</div>
 									</td>
 									<td>
-										<div class="status-cell">
+										<div class="dashboard-page__status">
 											<StatusDot status={signal.status} />
 											<span>{signal.status.replaceAll('_', ' ')}</span>
 										</div>
 									</td>
-									<td class="align-right">
-										<div class="action-cell">
+									<td class="dashboard-page__align-right">
+										<div class="dashboard-page__actions">
 											<form method="POST" action="?/dismiss">
 												<input type="hidden" name="signalId" value={signal.id} />
-												<button class="table-button table-button-muted" type="submit">
+												<button class="btn btn-secondary btn-sm dashboard-page__table-button" type="submit">
 													Dismiss
 												</button>
 											</form>
 											<a
-												class="table-button table-button-cyan"
+												class="btn btn-ghost btn-sm dashboard-page__table-button"
 												href={`/dashboard/sequences?signal_type=${signal.signal_type}`}
 											>
 												View
@@ -499,490 +553,21 @@
 		</section>
 
 		{#if stats.totalDetected > 0}
-			<section class="quick-actions">
-				<p class="quick-copy">⚡ {formatCount(stats.scheduledToday)} sequence emails scheduled for today</p>
-				<a class="quick-link" href="/dashboard/sequences">View sequences →</a>
+			<section class="dashboard-page__quick">
+				<p class="dashboard-page__quick-copy">
+					⚡ {formatCount(stats.scheduledToday)} sequence emails scheduled for today
+				</p>
+				<a class="dashboard-page__quick-link" href="/dashboard/sequences">View sequences →</a>
 			</section>
 		{/if}
 	</section>
 {/if}
 
 {#if toast}
-	<div class={`toast toast-${toast.kind}`}>
-		<p>{toast.message}</p>
+	<div class="dashboard-toast-stack">
+		<div class={`dashboard-toast dashboard-toast--${toast.kind}`}>
+			<div class="dashboard-toast__accent"></div>
+			<p class="dashboard-toast__message">{toast.message}</p>
+		</div>
 	</div>
 {/if}
-
-<style>
-	.dashboard-page {
-		display: flex;
-		min-height: calc(100vh - 48px);
-		flex-direction: column;
-		gap: 1.5rem;
-		padding: 1.5rem;
-	}
-
-	.dashboard-centered {
-		justify-content: center;
-	}
-
-	.connect-card,
-	.metric-card,
-	.panel,
-	.signals-section {
-		border: 1px solid rgba(255, 255, 255, 0.07);
-		background: var(--bg-surface);
-	}
-
-	.connect-card {
-		width: min(100%, 30rem);
-		margin: 0 auto;
-		padding: 2rem;
-	}
-
-	.connect-icon {
-		display: inline-flex;
-		width: 3.25rem;
-		height: 3.25rem;
-		color: var(--accent-cyan);
-	}
-
-	.connect-icon :global(svg) {
-		width: 100%;
-		height: 100%;
-	}
-
-	.connect-title,
-	.empty-title {
-		margin: 1.5rem 0 0;
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 1.5rem;
-		font-weight: 500;
-		line-height: 1.25;
-		letter-spacing: 0.02em;
-		text-transform: none;
-		color: var(--text-primary);
-	}
-
-	.connect-copy,
-	.connect-footnote,
-	.empty-copy {
-		margin: 0.9rem 0 0;
-		font-size: 0.95rem;
-		line-height: 1.7;
-		color: var(--text-secondary);
-	}
-
-	.connect-steps {
-		display: grid;
-		gap: 0.9rem;
-		margin: 1.5rem 0 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	.connect-steps li {
-		display: flex;
-		align-items: center;
-		gap: 0.85rem;
-		font-size: 0.95rem;
-		color: var(--text-primary);
-	}
-
-	.connect-steps span {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.6rem;
-		height: 1.6rem;
-		border: 1px solid var(--border-accent);
-		background: rgba(0, 229, 255, 0.08);
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 0.7rem;
-		color: var(--accent-cyan);
-	}
-
-	.connect-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		margin-top: 1.75rem;
-		padding: 0.95rem 1rem;
-		background: var(--accent-cyan);
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 0.8rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: #000;
-	}
-
-	.metric-grid {
-		display: grid;
-		gap: 1rem;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-	}
-
-	.metric-card {
-		padding: 1.25rem;
-	}
-
-	.metric-label,
-	.section-label,
-	.signals-table th {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 0.69rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--text-muted);
-	}
-
-	.metric-value {
-		margin: 0.85rem 0 0;
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 1.75rem;
-		font-weight: 500;
-		letter-spacing: -0.02em;
-		color: var(--text-primary);
-	}
-
-	.metric-value-success {
-		color: var(--status-success);
-	}
-
-	.metric-value-warning {
-		color: var(--status-warning);
-	}
-
-	.metric-value-danger {
-		color: var(--status-danger);
-	}
-
-	.metric-delta {
-		margin: 0.55rem 0 0;
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-	}
-
-	.analytics-grid {
-		display: grid;
-		gap: 1rem;
-		grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr);
-	}
-
-	.panel {
-		padding: 1.25rem;
-	}
-
-	.panel-header,
-	.signals-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-
-	.breakdown-list {
-		display: grid;
-		gap: 1rem;
-		margin-top: 1rem;
-	}
-
-	.breakdown-row {
-		display: grid;
-		align-items: center;
-		gap: 0.85rem;
-		grid-template-columns: 8rem minmax(0, 1fr) auto;
-	}
-
-	.breakdown-label,
-	.breakdown-count,
-	.sparkline-labels span,
-	.mono-cell,
-	.quick-copy {
-		font-family: 'IBM Plex Mono', monospace;
-	}
-
-	.breakdown-label {
-		font-size: 0.82rem;
-		color: var(--text-secondary);
-	}
-
-	.breakdown-track {
-		height: 0.375rem;
-		background: rgba(255, 255, 255, 0.06);
-	}
-
-	.breakdown-bar {
-		height: 100%;
-		background: var(--bar-color);
-	}
-
-	.breakdown-count {
-		font-size: 0.8rem;
-		color: var(--text-primary);
-	}
-
-	.sparkline-card {
-		margin-top: 1rem;
-	}
-
-	.sparkline-svg {
-		display: block;
-		width: 100%;
-		height: 5rem;
-	}
-
-	.sparkline-grid {
-		stroke: rgba(255, 255, 255, 0.06);
-		stroke-width: 1;
-	}
-
-	.sparkline-line {
-		stroke: var(--accent-cyan);
-		stroke-width: 1.5;
-	}
-
-	.sparkline-labels {
-		display: grid;
-		grid-template-columns: repeat(7, minmax(0, 1fr));
-		margin-top: 0.45rem;
-	}
-
-	.sparkline-labels span {
-		font-size: 0.625rem;
-		text-align: center;
-		color: var(--text-muted);
-	}
-
-	.signals-section {
-		padding: 1.25rem 0 0;
-	}
-
-	.signals-header {
-		padding: 0 1.25rem 1rem;
-	}
-
-	.signals-link,
-	.quick-link {
-		font-size: 0.85rem;
-		color: var(--accent-cyan);
-	}
-
-	.table-wrap {
-		overflow-x: auto;
-	}
-
-	.signals-table {
-		width: 100%;
-		border-collapse: collapse;
-	}
-
-	.signals-table th {
-		padding: 0 1.25rem 0.9rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-		text-align: left;
-	}
-
-	.signals-table td {
-		padding: 1rem 1.25rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-		vertical-align: middle;
-	}
-
-	.signals-table tbody tr {
-		transition: background-color 140ms ease;
-	}
-
-	.signals-table tbody tr:hover {
-		background: rgba(255, 255, 255, 0.02);
-	}
-
-	.align-right {
-		text-align: right;
-	}
-
-	.customer-name {
-		margin: 0;
-		font-size: 0.88rem;
-		color: var(--text-primary);
-	}
-
-	.customer-email,
-	.detected-exact {
-		margin: 0.25rem 0 0;
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-	}
-
-	.detected-cell {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-		font-size: 0.85rem;
-		color: var(--text-primary);
-	}
-
-	.status-cell,
-	.action-cell {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.55rem;
-	}
-
-	.status-cell {
-		font-size: 0.82rem;
-		text-transform: capitalize;
-		color: var(--text-primary);
-	}
-
-	.action-cell {
-		justify-content: flex-end;
-	}
-
-	.table-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.46rem 0.7rem;
-		border: 1px solid transparent;
-		background: transparent;
-		font-size: 0.75rem;
-		transition:
-			border-color 140ms ease,
-			background-color 140ms ease,
-			color 140ms ease;
-	}
-
-	.table-button-muted {
-		border-color: rgba(255, 255, 255, 0.08);
-		color: var(--text-secondary);
-	}
-
-	.table-button-muted:hover {
-		border-color: rgba(255, 255, 255, 0.14);
-		background: rgba(255, 255, 255, 0.03);
-		color: var(--text-primary);
-	}
-
-	.table-button-cyan {
-		border-color: rgba(0, 229, 255, 0.18);
-		color: var(--accent-cyan);
-	}
-
-	.table-button-cyan:hover {
-		background: rgba(0, 229, 255, 0.08);
-	}
-
-	.empty-state {
-		display: grid;
-		place-items: center;
-		padding: 3rem 1.5rem 3.5rem;
-		text-align: center;
-	}
-
-	.empty-illustration {
-		width: 7rem;
-		height: 7rem;
-		color: rgba(0, 229, 255, 0.65);
-	}
-
-	.quick-actions {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.75rem 1.25rem;
-		border: 1px solid rgba(0, 229, 255, 0.15);
-		background: rgba(0, 229, 255, 0.05);
-	}
-
-	.quick-copy {
-		margin: 0;
-		font-size: 0.78rem;
-		letter-spacing: 0.03em;
-		color: var(--text-primary);
-	}
-
-	.toast {
-		position: fixed;
-		right: 1.5rem;
-		bottom: 1.5rem;
-		min-width: 18rem;
-		max-width: 24rem;
-		padding: 0.9rem 1rem;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		background: rgba(17, 17, 19, 0.96);
-		animation: toast-slide-up 220ms ease-out;
-		backdrop-filter: blur(10px);
-	}
-
-	.toast p {
-		margin: 0;
-		font-size: 0.86rem;
-		color: var(--text-primary);
-	}
-
-	.toast-success {
-		border-left: 3px solid var(--status-success);
-	}
-
-	.toast-error {
-		border-left: 3px solid var(--status-danger);
-	}
-
-	@keyframes toast-slide-up {
-		from {
-			opacity: 0;
-			transform: translateY(12px);
-		}
-
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@media (max-width: 1024px) {
-		.metric-grid,
-		.analytics-grid {
-			grid-template-columns: 1fr 1fr;
-		}
-	}
-
-	@media (max-width: 768px) {
-		.dashboard-page {
-			padding: 1rem;
-		}
-
-		.metric-grid,
-		.analytics-grid {
-			grid-template-columns: 1fr;
-		}
-
-		.breakdown-row {
-			grid-template-columns: 1fr;
-		}
-
-		.breakdown-track {
-			order: 2;
-		}
-
-		.breakdown-count {
-			order: 3;
-		}
-
-		.quick-actions {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-
-		.toast {
-			right: 1rem;
-			left: 1rem;
-			bottom: 1rem;
-			min-width: 0;
-		}
-	}
-</style>

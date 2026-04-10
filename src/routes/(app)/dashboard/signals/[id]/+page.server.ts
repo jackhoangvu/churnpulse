@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { error, fail } from '@sveltejs/kit';
-import Stripe from 'stripe';
+import Polar from 'stripe';
 import type { Actions, PageServerLoad } from './$types';
 import { env } from '$lib/env';
 import { classifyChurnSignal, type AIClassification } from '$lib/server/ai-classifier';
@@ -29,7 +29,8 @@ const signalTypes: SignalType[] = [
 	'downgraded',
 	'paused',
 	'cancelled',
-	'high_mrr_risk'
+	'high_mrr_risk',
+	'trial_ending'
 ];
 const signalStatuses: SignalStatus[] = [
 	'detected',
@@ -50,6 +51,7 @@ function toSignalStatus(value: string): SignalStatus {
 function toSignal(row: ChurnSignalRow): ChurnSignal {
 	return {
 		...row,
+		provider: (row.provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: toSignalType(row.signal_type),
 		status: toSignalStatus(row.status),
 		metadata: row.metadata
@@ -89,7 +91,8 @@ function computeRiskScore(signal: ChurnSignal): number {
 		downgraded: 56,
 		paused: 38,
 		cancelled: 72,
-		high_mrr_risk: 82
+		high_mrr_risk: 82,
+		trial_ending: 64
 	};
 	const mrrContribution = Math.min(18, Math.round(signal.mrr_amount / 5_000));
 	const highValueBonus = signal.mrr_amount > 50_000 ? 12 : 0;
@@ -135,7 +138,7 @@ async function loadCustomerContext(
 	org: OrganizationRow,
 	signal: ChurnSignal
 ): Promise<CustomerContext> {
-	if (!signal.stripe_customer_id) {
+	if (!signal.polar_customer_id) {
 		return {
 			name: signal.customer_name,
 			email: signal.customer_email,
@@ -145,9 +148,9 @@ async function loadCustomerContext(
 	}
 
 	try {
-		if (org.stripe_access_token) {
-			const stripe = new Stripe(org.stripe_access_token);
-			const customer = await stripe.customers.retrieve(signal.stripe_customer_id);
+		if (org.polar_access_token) {
+			const stripe = new Polar(org.polar_access_token);
+			const customer = await stripe.customers.retrieve(signal.polar_customer_id);
 
 			if (!customer.deleted) {
 				const customerSince =
@@ -159,7 +162,7 @@ async function loadCustomerContext(
 					name: customer.name ?? signal.customer_name,
 					email: customer.email ?? signal.customer_email,
 					customerSince,
-					stripeUrl: `https://dashboard.stripe.com/customers/${signal.stripe_customer_id}`
+					stripeUrl: `https://dashboard.stripe.com/customers/${signal.polar_customer_id}`
 				};
 			}
 		}
@@ -171,7 +174,7 @@ async function loadCustomerContext(
 		name: signal.customer_name,
 		email: signal.customer_email,
 		customerSince: null,
-		stripeUrl: `https://dashboard.stripe.com/customers/${signal.stripe_customer_id}`
+		stripeUrl: `https://dashboard.stripe.com/customers/${signal.polar_customer_id}`
 	};
 }
 

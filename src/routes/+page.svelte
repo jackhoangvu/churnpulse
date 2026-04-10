@@ -21,7 +21,7 @@
 	type SignalCard = {
 		title: string;
 		description: string;
-		color: string;
+		cardClass: string;
 		badgeLabel?: string;
 		badgeClass?: string;
 		revealDelay: string;
@@ -49,14 +49,14 @@
 	const navLinks: NavLink[] = [
 		{ href: '#signals', label: 'Signals' },
 		{ href: '#pricing', label: 'Pricing' },
-		{ href: '#how-it-works', label: 'Demo' },
+		{ href: '/demo', label: 'Demo' },
 		{ href: '/docs', label: 'Docs' }
 	];
 
 	const socialProofItems: SocialProofItem[] = [
-		{ label: 'No credit card needed' },
+		{ label: 'Works with Stripe, Paddle, LS & Polar' },
 		{ label: '60-second setup' },
-		{ label: 'Read-only Stripe access' }
+		{ label: 'Read-only access only' }
 	];
 
 	const previewRows: PreviewRow[] = [
@@ -108,42 +108,42 @@
 			title: 'Card Failed',
 			description:
 				"Invoice payment failed and the customer probably did not mean to leave. Recover the easy wins before finance becomes churn.",
-			color: '#F05252',
+			cardClass: 'signal-card--card-failed',
 			revealDelay: 'reveal-delay-1'
 		},
 		{
 			title: 'Disengaged',
 			description:
 				'No meaningful product usage in 14+ days. Silent churn is already forming and your reactivation window is narrowing.',
-			color: '#F59E0B',
+			cardClass: 'signal-card--disengaged',
 			revealDelay: 'reveal-delay-2'
 		},
 		{
 			title: 'Plan Downgraded',
 			description:
 				'Subscription value dropped. The account is shrinking, budgets are tightening, and value needs to be re-established fast.',
-			color: '#FB923C',
+			cardClass: 'signal-card--downgraded',
 			revealDelay: 'reveal-delay-3'
 		},
 		{
 			title: 'Subscription Paused',
 			description:
 				'Paused is not harmless. ChurnPulse starts the follow-up window before a pause quietly turns permanent.',
-			color: '#818CF8',
+			cardClass: 'signal-card--paused',
 			revealDelay: 'reveal-delay-4'
 		},
 		{
 			title: 'Subscription Cancelled',
 			description:
 				'Cancellation starts a 30-day win-back race. The first touch goes out immediately while the context is still fresh.',
-			color: '#EF4444',
+			cardClass: 'signal-card--cancelled',
 			revealDelay: 'reveal-delay-2'
 		},
 		{
 			title: 'High MRR at Risk',
 			description:
 				'Any risk event on a $500+/mo customer gets escalated instantly so the most expensive losses never hide in the queue.',
-			color: '#FF2D55',
+			cardClass: 'signal-card--high-mrr',
 			badgeLabel: 'Critical',
 			badgeClass: 'badge-critical',
 			revealDelay: 'reveal-delay-3'
@@ -153,9 +153,9 @@
 	const stepItems: StepItem[] = [
 		{
 			number: '01',
-			title: 'Connect Stripe',
+			title: 'Connect your billing stack',
 			description:
-				'OAuth setup takes under a minute. Founders connect once and ChurnPulse starts monitoring the account immediately.',
+				'OAuth or webhook setup takes under a minute. Connect Stripe, Paddle, Lemon Squeezy, or Polar and ChurnPulse starts monitoring immediately.',
 			icon: 'plug'
 		},
 		{
@@ -184,7 +184,7 @@
 			features: [
 				'3 signal types (card failed, cancelled, paused)',
 				'Basic email sequences (3-step)',
-				'Stripe Connect (read-only)',
+				'One billing platform connection',
 				'Dashboard with 30-day history',
 				'Up to 500 monitored customers',
 				'Email support'
@@ -199,7 +199,7 @@
 			description:
 				'All 6 signals, AI win-back copy, and a recovery loop that pays for itself as soon as the first account comes back.',
 			features: [
-				'All 6 signal types',
+				'All 7 signal types',
 				'AI-powered email personalization',
 				'Real-time dashboard + live signals',
 				'Full 3-step sequence engine',
@@ -372,7 +372,7 @@
 	<title>ChurnPulse — Stop SaaS Churn Before It Happens</title>
 	<meta
 		name="description"
-		content="ChurnPulse helps SaaS founders detect churn signals inside Stripe, trigger AI-personalized win-back sequences, and recover revenue before customers leave."
+		content="ChurnPulse helps SaaS founders connect Stripe, Paddle, Lemon Squeezy, or Polar, detect churn signals, and trigger AI-personalized win-back sequences before customers leave."
 	/>
 </svelte:head>
 
@@ -410,7 +410,7 @@
 		<div class="hero__glow-2" aria-hidden="true"></div>
 
 		<div class="hero__content" id="hero-content">
-			<p class="hero__eyebrow">Stripe-native churn prevention</p>
+			<p class="hero__eyebrow">Multi-platform churn prevention</p>
 
 			<h1 class="hero__title">
 				Stop losing customers
@@ -419,14 +419,15 @@
 			</h1>
 
 			<p class="hero__subtitle">
-				ChurnPulse connects to Stripe in 60 seconds and automatically detects 6 churn signals
-				including card failures, disengagement, and downgrades, then fires personalized
-				win-back emails before customers cancel.
+				ChurnPulse connects to Stripe, Paddle, Lemon Squeezy, or Polar in 60 seconds and
+				automatically detects 7 churn signals including card failures, disengagement, plan
+				downgrades, and more, then fires AI-personalized win-back emails before customers
+				cancel.
 			</p>
 
 			<div class="hero__ctas" id="hero-actions">
-				<a class="btn btn-primary btn-lg" href="/sign-up">Connect Stripe — free</a>
-				<a class="btn btn-ghost btn-lg" href="#how-it-works">See how it works ↓</a>
+				<a class="btn btn-primary btn-lg" href="/sign-up" id="hero-cta-primary">Start free →</a>
+				<a class="btn btn-ghost btn-lg" href="/demo" id="hero-cta-demo">See live demo</a>
 			</div>
 
 			<div class="hero__social-proof" id="hero-proof">
@@ -501,19 +502,41 @@
 		</div>
 	</section>
 
+	<section class="section platforms-section reveal" id="platforms">
+		<p class="section__label" id="platforms-label">Works with</p>
+		<div class="platforms-grid" id="platforms-grid">
+			{#each [
+				{ name: 'Stripe', color: '#635BFF' },
+				{ name: 'Paddle', color: '#0EA5E9' },
+				{ name: 'Lemon Squeezy', color: '#FFC233' },
+				{ name: 'Polar', color: '#4F6EF7' }
+			] as platform (platform.name)}
+				<div
+					class="platform-chip"
+					style={`--chip-color: ${platform.color}`}
+					id={`platform-${platform.name.toLowerCase().replace(' ', '-')}`}
+				>
+					<span class="platform-chip__dot" aria-hidden="true" id={`platform-dot-${platform.name.toLowerCase().replace(' ', '-')}`}></span>
+					<span class="platform-chip__name" id={`platform-name-${platform.name.toLowerCase().replace(' ', '-')}`}>
+						{platform.name}
+					</span>
+				</div>
+			{/each}
+		</div>
+	</section>
+
 	<section class="section reveal" id="signals">
 		<span class="section__label">What we detect</span>
-		<h2 class="section__heading">6 signals. Zero missed churn.</h2>
+		<h2 class="section__heading">7 signals. Zero missed churn.</h2>
 		<p class="section__subtitle">
 			Every signal maps to a specific failure mode inside a subscription business. ChurnPulse
 			watches for all of them continuously so recovery starts before the cancellation email does.
 		</p>
 
-		<div class="grid-3" id="signals-grid">
+			<div class="grid-3" id="signals-grid">
 			{#each signalCards as signalCard (signalCard.title)}
 				<article
-					class={`signal-card tilt-card reveal ${signalCard.revealDelay}`}
-					style={`--signal-color: ${signalCard.color}`}
+					class={`signal-card ${signalCard.cardClass} tilt-card reveal ${signalCard.revealDelay}`}
 				>
 					{#if signalCard.badgeLabel && signalCard.badgeClass}
 						<div class="pricing-card__badge" id={`signal-badge-${signalCard.title}`}>

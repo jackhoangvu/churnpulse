@@ -55,7 +55,8 @@ function emptySignalCounts(): Record<SignalType, number> {
 		downgraded: 0,
 		paused: 0,
 		cancelled: 0,
-		high_mrr_risk: 0
+		high_mrr_risk: 0,
+		trial_ending: 0
 	};
 }
 

@@ -1,43 +1,37 @@
 import { json } from '@sveltejs/kit';
-import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET } from '$env/static/private';
 import type { RequestHandler } from './$types';
-import { env } from '$lib/env';
-import { checkRateLimit } from '$lib/server/rate-limiter';
+import { admin } from '$lib/server/admin';
 import { log, logError } from '$lib/server/logger';
-import { processStripeEvent, stripeEventAlreadyProcessed } from '$lib/server/stripe-webhook';
-import type { Database, OrganizationRow } from '$lib/types/supabase';
+import { normalizeStripeEvent } from '$lib/server/normalizer';
+import { checkRateLimit } from '$lib/server/rate-limiter';
+import { processNormalizedEvent } from '$lib/server/unified-detector';
+import type { Organization } from '$lib/types';
+import type { OrganizationRow } from '$lib/types/supabase';
 
-const stripe = new Stripe(env.stripeSecretKey);
-const admin = createClient<Database, 'public'>(env.supabaseUrl, env.supabaseServiceRoleKey, {
-	auth: {
-		autoRefreshToken: false,
-		persistSession: false
-	}
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
+	apiVersion: '2026-03-25.dahlia'
 });
 
-function extractCandidateAccountId(payload: string): string {
-	try {
-		const parsed = JSON.parse(payload) as {
-			account?: string;
-			data?: { object?: { metadata?: { org_id?: string } } };
-		};
+const SUPPORTED_EVENTS = new Set([
+	'invoice.payment_failed',
+	'customer.subscription.updated',
+	'customer.subscription.paused',
+	'customer.subscription.deleted',
+	'customer.subscription.trial_will_end'
+]);
 
-		return parsed.account ?? parsed.data?.object?.metadata?.org_id ?? 'unknown';
-	} catch {
-		return 'unknown';
-	}
-}
-
-async function resolveOrganization(accountId: string): Promise<OrganizationRow | null> {
-	if (!accountId || accountId === 'unknown') {
+async function resolveOrgByStripeAccount(accountId: string | null): Promise<OrganizationRow | null> {
+	if (!accountId) {
 		return null;
 	}
 
 	const { data, error } = await admin
 		.from('organizations')
 		.select('*')
-		.eq('stripe_account_id', accountId)
+		.contains('providers', [{ type: 'stripe', account_id: accountId }] as never)
+		.limit(1)
 		.maybeSingle();
 
 	if (error) {
@@ -49,58 +43,48 @@ async function resolveOrganization(accountId: string): Promise<OrganizationRow |
 
 export const POST: RequestHandler = async ({ request }) => {
 	const payload = await request.text();
-	const candidateAccountId = extractCandidateAccountId(payload);
 	const signature = request.headers.get('stripe-signature');
 
 	if (!signature) {
-		log('warn', 'stripe-webhook', 'Missing Stripe signature header', {
-			stripe_account_id: candidateAccountId
-		});
 		return json({ received: true });
 	}
 
+	let event: Stripe.Event;
 	try {
-		const organization = await resolveOrganization(candidateAccountId);
-
-		if (!organization?.stripe_webhook_secret) {
-			log('warn', 'stripe-webhook', 'No organization webhook secret found for Stripe event', {
-				stripe_account_id: candidateAccountId
-			});
-			return json({ received: true });
-		}
-
-		if (!checkRateLimit(`webhook:${organization.id}`, 100, 60_000)) {
-			log('warn', 'stripe-webhook', 'Webhook rate limit exceeded', {
-				org_id: organization.id
-			});
-			return json({ received: true, rate_limited: true });
-		}
-
-		const event = stripe.webhooks.constructEvent(payload, signature, organization.stripe_webhook_secret);
-
-		if (await stripeEventAlreadyProcessed(event.id)) {
-			log('info', 'stripe-webhook', 'Duplicate webhook skipped before processing', {
-				org_id: organization.id,
-				stripe_event_id: event.id
-			});
-			return json({ received: true });
-		}
-
-		void (async () => {
-			try {
-				await processStripeEvent(event);
-			} catch (error) {
-				logError('stripe-webhook.async', error, {
-					org_id: organization.id,
-					stripe_event_id: event.id
-				});
-			}
-		})();
-	} catch (error) {
-		logError('stripe-webhook', error, {
-			stripe_account_id: candidateAccountId
-		});
+		event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
+	} catch {
+		log('warn', 'stripe-webhook', 'Invalid signature');
+		return json({ received: true });
 	}
+
+	if (!SUPPORTED_EVENTS.has(event.type)) {
+		return json({ received: true });
+	}
+
+	if (!checkRateLimit(`stripe-webhook:${event.id}`, 1, 60_000)) {
+		return json({ received: true });
+	}
+
+	void (async () => {
+		try {
+			const organization = await resolveOrgByStripeAccount(event.account ?? null);
+			if (!organization) {
+				log('warn', 'stripe-webhook', 'No org found for Stripe account', {
+					account: event.account ?? null
+				});
+				return;
+			}
+
+			const normalized = normalizeStripeEvent(event as unknown as Record<string, unknown>);
+			if (!normalized) {
+				return;
+			}
+
+			await processNormalizedEvent(normalized, organization as unknown as Organization);
+		} catch (caughtError) {
+			logError('stripe-webhook', caughtError, { event_id: event.id });
+		}
+	})();
 
 	return json({ received: true });
 };

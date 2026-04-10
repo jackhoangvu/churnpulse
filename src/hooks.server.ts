@@ -7,8 +7,21 @@ const PUBLIC_ROUTES = new Set([
 	'/',
 	'/sign-in',
 	'/sign-up',
+	'/demo',
+	'/docs',
+	'/pricing',
+	'/changelog',
+	'/privacy',
+	'/refund',
+	'/terms-and-conditions',
+	'/api/webhooks/polar',
 	'/api/webhooks/stripe',
-	'/api/stripe/callback'
+	'/api/webhooks/paddle',
+	'/api/webhooks/lemonsqueezy',
+	'/api/polar/callback',
+	'/api/stripe/callback',
+	'/api/analytics',
+	'/api/health'
 ]);
 
 const isDashboardRoute = (pathname: string) =>

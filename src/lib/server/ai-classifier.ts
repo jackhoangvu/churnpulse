@@ -28,7 +28,8 @@ const TONE_BY_SIGNAL: Record<
 	disengaged: 'gentle',
 	downgraded: 'value_focused',
 	high_mrr_risk: 'urgent',
-	paused: 'empathetic'
+	paused: 'empathetic',
+	trial_ending: 'gentle'
 };
 
 const URGENCY_BY_SIGNAL: Record<SignalType, number> = {
@@ -37,7 +38,8 @@ const URGENCY_BY_SIGNAL: Record<SignalType, number> = {
 	disengaged: 5,
 	downgraded: 6,
 	high_mrr_risk: 10,
-	paused: 4
+	paused: 4,
+	trial_ending: 8
 };
 
 function serializeError(error: unknown): string {
@@ -72,7 +74,9 @@ function fallbackClassification(signal: ChurnSignal): AIClassification {
 							? 'The customer has intentionally stepped back for now, which often means timing or priority has shifted rather than interest disappearing.'
 							: signal.signal_type === 'cancelled'
 								? 'The customer has already made a churn decision, likely because the product no longer felt essential or urgent enough to keep paying for.'
-								: 'This looks like a high-value account showing strong churn risk signals and likely needs personal intervention before renewal confidence drops further.',
+								: signal.signal_type === 'trial_ending'
+									? 'The customer is nearing the end of a free trial without enough conviction to convert, which usually points to incomplete activation or unresolved value questions.'
+									: 'This looks like a high-value account showing strong churn risk signals and likely needs personal intervention before renewal confidence drops further.',
 		win_back_angle:
 			signal.signal_type === 'card_failed'
 				? 'Make the recovery effortless, reassure them access is protected, and give them a direct path to update billing in under a minute.'
@@ -84,6 +88,8 @@ function fallbackClassification(signal: ChurnSignal): AIClassification {
 							? 'Remind them what they are missing while making reactivation feel simple, low-friction, and completely on their terms.'
 							: signal.signal_type === 'cancelled'
 								? 'Lead with respect, ask for honest feedback, and reopen the conversation only if there is a credible reason to return.'
+								: signal.signal_type === 'trial_ending'
+									? 'Reinforce the clearest outcome they can unlock by converting now and offer help removing any final blocker before the trial expires.'
 								: 'Use a founder-level, human message focused on business impact, white-glove support, and a clear path back to value.',
 		urgency_score: urgency,
 		recommended_tone: tone,

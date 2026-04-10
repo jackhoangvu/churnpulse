@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { env } from '$lib/env';
+import { organizationHasActiveProvider } from '$lib/provider-utils';
 import { resolveOrganization as resolveStoredOrganization } from '$lib/server/organizations';
 import type { ChurnSignal, SignalStatus, SignalType } from '$lib/types';
 import type { Database, ChurnSignalRow, OrganizationRow } from '$lib/types/supabase';
@@ -42,7 +43,8 @@ const signalTypes: SignalType[] = [
 	'downgraded',
 	'paused',
 	'cancelled',
-	'high_mrr_risk'
+	'high_mrr_risk',
+	'trial_ending'
 ];
 
 const signalStatuses: SignalStatus[] = [
@@ -76,6 +78,7 @@ function toSignalStatus(value: string): SignalStatus {
 function toSignal(row: ChurnSignalRow): ChurnSignal {
 	return {
 		...row,
+		provider: (row.provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: toSignalType(row.signal_type),
 		status: toSignalStatus(row.status),
 		metadata: row.metadata
@@ -99,7 +102,8 @@ function emptySignalCounts(): Record<SignalType, number> {
 		downgraded: 0,
 		paused: 0,
 		cancelled: 0,
-		high_mrr_risk: 0
+		high_mrr_risk: 0,
+		trial_ending: 0
 	};
 }
 
@@ -256,7 +260,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	try {
 		const organization = await resolveOrganization(locals.session?.userId);
 
-		if (!organization?.stripe_account_id) {
+		if (!organization || (!organization.polar_organization_id && !organizationHasActiveProvider(organization.providers))) {
 			return {
 				title: 'Dashboard',
 				breadcrumb: ['ChurnPulse', 'Dashboard'],
@@ -300,8 +304,8 @@ export const actions: Actions = {
 		const organization = await resolveOrganization(locals.session?.userId);
 		const resolvedSignalId = await signalId;
 
-		if (!organization?.stripe_account_id) {
-			return fail(404, { message: 'No connected Stripe workspace was found for this account.' });
+		if (!organization || (!organization.polar_organization_id && !organizationHasActiveProvider(organization.providers))) {
+			return fail(404, { message: 'No connected Polar workspace was found for this account.' });
 		}
 
 		if (typeof resolvedSignalId !== 'string' || !resolvedSignalId.trim()) {

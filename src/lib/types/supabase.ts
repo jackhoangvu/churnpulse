@@ -6,27 +6,44 @@ export type Json =
 	| { [key: string]: Json | undefined }
 	| Json[];
 
+export type Provider = 'stripe' | 'paddle' | 'lemonsqueezy' | 'polar';
+
+export interface ProviderConnection {
+	type: Provider;
+	account_id: string;
+	access_token: string;
+	refresh_token?: string;
+	webhook_secret: string;
+	connected_at: string;
+	status: 'active' | 'error';
+	error_message?: string;
+	label?: string;
+}
+
 export interface OrganizationRow {
 	id: string;
 	user_id: string;
 	name: string | null;
 	metadata: Json | null;
-	stripe_account_id: string | null;
-	stripe_access_token: string | null;
-	stripe_refresh_token: string | null;
-	stripe_webhook_secret: string | null;
+	providers: Json | null;
+	polar_account_id: string | null;
+	polar_access_token: string | null;
+	polar_refresh_token: string | null;
+	polar_webhook_secret: string | null;
+	polar_organization_id?: string | null;
 	created_at: string;
 }
 
 export interface ChurnSignalRow {
 	id: string;
 	org_id: string;
-	stripe_customer_id: string;
+	provider: string;
+	polar_customer_id: string;
 	customer_email: string | null;
 	customer_name: string | null;
 	signal_type: string;
 	mrr_amount: number;
-	stripe_event_id: string | null;
+	polar_event_id: string | null;
 	status: string;
 	ai_churn_reason: string | null;
 	ai_win_back_angle: string | null;
@@ -49,6 +66,26 @@ export interface SequenceEmailRow {
 	created_at: string;
 }
 
+export interface ProviderEventRow {
+	id: string;
+	org_id: string;
+	provider: Provider;
+	event_id: string;
+	event_type: string;
+	payload: Json;
+	processed: boolean;
+	error_message: string | null;
+	created_at: string;
+}
+
+export interface AnalyticsEventRow {
+	id: string;
+	event_name: string;
+	properties: Json;
+	session_id: string | null;
+	created_at: string;
+}
+
 export interface Database {
 	public: {
 		Tables: {
@@ -59,10 +96,11 @@ export interface Database {
 					user_id: string;
 					name?: string | null;
 					metadata?: Json | null;
-					stripe_account_id?: string | null;
-					stripe_access_token?: string | null;
-					stripe_refresh_token?: string | null;
-					stripe_webhook_secret?: string | null;
+					providers?: Json | null;
+					polar_account_id?: string | null;
+					polar_access_token?: string | null;
+					polar_refresh_token?: string | null;
+					polar_webhook_secret?: string | null;
 					created_at?: string;
 				};
 				Update: {
@@ -70,10 +108,11 @@ export interface Database {
 					user_id?: string;
 					name?: string | null;
 					metadata?: Json | null;
-					stripe_account_id?: string | null;
-					stripe_access_token?: string | null;
-					stripe_refresh_token?: string | null;
-					stripe_webhook_secret?: string | null;
+					providers?: Json | null;
+					polar_account_id?: string | null;
+					polar_access_token?: string | null;
+					polar_refresh_token?: string | null;
+					polar_webhook_secret?: string | null;
 					created_at?: string;
 				};
 				Relationships: [];
@@ -83,12 +122,13 @@ export interface Database {
 				Insert: {
 					id?: string;
 					org_id: string;
-					stripe_customer_id: string;
+					provider?: string;
+					polar_customer_id: string;
 					customer_email?: string | null;
 					customer_name?: string | null;
 					signal_type: string;
 					mrr_amount?: number;
-					stripe_event_id?: string | null;
+					polar_event_id?: string | null;
 					status?: string;
 					ai_churn_reason?: string | null;
 					ai_win_back_angle?: string | null;
@@ -99,12 +139,13 @@ export interface Database {
 				Update: {
 					id?: string;
 					org_id?: string;
-					stripe_customer_id?: string;
+					provider?: string;
+					polar_customer_id?: string;
 					customer_email?: string | null;
 					customer_name?: string | null;
 					signal_type?: string;
 					mrr_amount?: number;
-					stripe_event_id?: string | null;
+					polar_event_id?: string | null;
 					status?: string;
 					ai_churn_reason?: string | null;
 					ai_win_back_angle?: string | null;
@@ -166,6 +207,37 @@ export interface Database {
 						referencedColumns: ['id'];
 					}
 				];
+			};
+			provider_events: {
+				Row: ProviderEventRow;
+				Insert: {
+					id?: string;
+					org_id: string;
+					provider: Provider;
+					event_id: string;
+					event_type: string;
+					payload: Json;
+					processed?: boolean;
+					error_message?: string | null;
+					created_at?: string;
+				};
+				Update: {
+					processed?: boolean;
+					error_message?: string | null;
+				};
+				Relationships: [];
+			};
+			analytics_events: {
+				Row: AnalyticsEventRow;
+				Insert: {
+					id?: string;
+					event_name: string;
+					properties?: Json;
+					session_id?: string | null;
+					created_at?: string;
+				};
+				Update: Record<string, never>;
+				Relationships: [];
 			};
 		};
 		Views: Record<never, never>;

@@ -18,17 +18,15 @@ function sanitizeNext(value: string | null): string {
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const userId = locals.session?.userId;
-
 	if (!userId) {
 		const signInUrl = new URL('/sign-in', url.origin);
-		signInUrl.searchParams.set('redirectUrl', '/dashboard/connect');
+		signInUrl.searchParams.set('redirectUrl', '/dashboard/settings');
 		throw redirect(307, signInUrl.toString());
 	}
 
 	const organization = await resolveOrCreateOrganization(locals.session);
-
 	if (!organization) {
-		throw redirect(303, '/dashboard/connect?error=create_org_first');
+		throw redirect(303, '/dashboard/settings?error=create_org_first');
 	}
 
 	const next = sanitizeNext(url.searchParams.get('next'));

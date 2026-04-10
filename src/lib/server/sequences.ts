@@ -1,14 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
-import { env } from '$lib/env';
 import type { Organization, SignalType } from '$lib/types';
+import { admin } from '$lib/server/admin';
 import type { Database, ChurnSignalRow } from '$lib/types/supabase';
-
-const admin = createClient<Database, 'public'>(env.supabaseUrl, env.supabaseServiceRoleKey, {
-	auth: {
-		autoRefreshToken: false,
-		persistSession: false
-	}
-});
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -40,7 +32,8 @@ const sequenceConfigs: Record<
 		{ delay: 14 * DAY, step: 2 },
 		{ delay: 21 * DAY, step: 3 }
 	],
-	high_mrr_risk: [{ delay: 0, step: 1 }]
+	high_mrr_risk: [{ delay: 0, step: 1 }],
+	trial_ending: [{ delay: 0, step: 1 }]
 };
 
 export async function scheduleSequence(

@@ -30,11 +30,14 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.85.0",
+		"@polar-sh/sdk": "^0.47.0",
+		"@polar-sh/sveltekit": "^0.7.5",
 		"@supabase/ssr": "^0.10.0",
 		"@supabase/supabase-js": "^2.102.1",
 		"@trigger.dev/sdk": "^4.4.3",
 		"clerk-sveltekit": "^0.4.3",
 		"resend": "^6.10.0",
-		"stripe": "^22.0.0"
+		"stripe": "^22.0.1",
+		"zod": "^4.3.6"
 	}
 }

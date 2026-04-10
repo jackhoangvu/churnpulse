@@ -19,19 +19,21 @@ const templateDefinitions: TemplateDefinition[] = [
 	{ signalType: 'cancelled', step: 3 },
 	{ signalType: 'downgraded', step: 1 },
 	{ signalType: 'paused', step: 1 },
-	{ signalType: 'high_mrr_risk', step: 1 }
+	{ signalType: 'high_mrr_risk', step: 1 },
+	{ signalType: 'trial_ending', step: 1 }
 ];
 
 function buildSampleSignal(signalType: SignalType): ChurnSignal {
 	return {
 		id: `sample-${signalType}`,
 		org_id: 'sample-org',
-		stripe_customer_id: 'cus_sample',
+		provider: 'polar',
+		polar_customer_id: 'cus_sample',
 		customer_email: 'operator@example.com',
 		customer_name: 'Northstar Labs',
 		signal_type: signalType,
 		mrr_amount: signalType === 'high_mrr_risk' ? 890000 : 24900,
-		stripe_event_id: null,
+		polar_event_id: null,
 		status: 'detected',
 		ai_churn_reason:
 			signalType === 'card_failed'

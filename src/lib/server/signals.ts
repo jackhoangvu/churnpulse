@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import Stripe from 'stripe';
+import Polar from 'stripe';
 import { CLERK_SECRET_KEY } from '$env/static/private';
 import { env } from '$lib/env';
 import { log, logError, logSignalDetected } from '$lib/server/logger';
@@ -58,6 +58,7 @@ function extractOrgMetadata(org: Organization): Record<string, unknown> {
 function normalizeSignal(row: ChurnSignalRow): ChurnSignal {
 	return {
 		...row,
+		provider: (row.provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: row.signal_type as SignalType,
 		status: row.status as ChurnSignal['status'],
 		metadata: row.metadata
@@ -147,7 +148,7 @@ async function sendHighValueAlert(org: Organization, signal: ChurnSignal): Promi
 	}
 
 	const orgName = org.name ?? 'Your organization';
-	const customerLabel = signal.customer_name ?? signal.customer_email ?? signal.stripe_customer_id;
+	const customerLabel = signal.customer_name ?? signal.customer_email ?? signal.polar_customer_id;
 	const amountLabel = `$${(signal.mrr_amount / 100).toFixed(2)}`;
 	const from =
 		env.nodeEnv === 'development'
@@ -202,7 +203,7 @@ async function fetchCustomerContact(
 	const fallbackEmail = readString(metadata.customer_email);
 	const fallbackName = readString(metadata.customer_name);
 
-	if (!customerId || !org.stripe_access_token) {
+	if (!customerId || !org.polar_access_token) {
 		return {
 			email: fallbackEmail,
 			name: fallbackName
@@ -210,7 +211,7 @@ async function fetchCustomerContact(
 	}
 
 	try {
-		const stripe = new Stripe(org.stripe_access_token);
+		const stripe = new Polar(org.polar_access_token);
 		const customer = await stripe.customers.retrieve(customerId);
 
 		if (customer.deleted) {
@@ -227,7 +228,7 @@ async function fetchCustomerContact(
 	} catch (error) {
 		logError('signals.fetch-customer-contact', error, {
 			org_id: org.id,
-			stripe_customer_id: customerId
+			polar_customer_id: customerId
 		});
 
 		return {
@@ -248,7 +249,7 @@ async function findRecentSignal(
 		.from('churn_signals')
 		.select('*')
 		.eq('org_id', orgId)
-		.eq('stripe_customer_id', customerId)
+		.eq('polar_customer_id', customerId)
 		.eq('signal_type', signalType)
 		.gte('detected_at', since)
 		.order('detected_at', { ascending: false })
@@ -295,7 +296,7 @@ export async function detectHighMrrRisk(signal: ChurnSignal, org: Organization):
 
 async function insertSignal(params: {
 	org: Organization;
-	event: Stripe.Event;
+	event: Polar.Event;
 	signalType: SignalType;
 	stripeCustomerId: string;
 	customerEmail: string | null;
@@ -315,20 +316,20 @@ async function insertSignal(params: {
 		log('info', 'signals', 'Skipping duplicate signal inside dedupe window', {
 			org_id: params.org.id,
 			signal_type: params.signalType,
-			stripe_customer_id: params.stripeCustomerId,
-			stripe_event_id: params.event.id
+			polar_customer_id: params.stripeCustomerId,
+			polar_event_id: params.event.id
 		});
 		return;
 	}
 
 	const insertRow: Database['public']['Tables']['churn_signals']['Insert'] = {
 		org_id: params.org.id,
-		stripe_customer_id: params.stripeCustomerId,
+		polar_customer_id: params.stripeCustomerId,
 		customer_email: params.customerEmail,
 		customer_name: params.customerName,
 		signal_type: params.signalType,
 		mrr_amount: params.mrrAmount,
-		stripe_event_id: params.event.id,
+		polar_event_id: params.event.id,
 		status: 'detected',
 		metadata: params.metadata as Json
 	};
@@ -349,8 +350,8 @@ async function insertSignal(params: {
 	await scheduleSequence(signal.id, params.signalType, params.org);
 }
 
-export async function detectCardFailed(event: Stripe.Event, org: Organization): Promise<void> {
-	const invoice = event.data.object as Stripe.Invoice;
+export async function detectCardFailed(event: Polar.Event, org: Organization): Promise<void> {
+	const invoice = event.data.object as Polar.Invoice;
 	const stripeCustomerId = extractCustomerId(invoice.customer);
 
 	if (!stripeCustomerId) {
@@ -377,8 +378,8 @@ export async function detectCardFailed(event: Stripe.Event, org: Organization): 
 	});
 }
 
-export async function detectDowngrade(event: Stripe.Event, org: Organization): Promise<void> {
-	const subscription = event.data.object as Stripe.Subscription;
+export async function detectDowngrade(event: Polar.Event, org: Organization): Promise<void> {
+	const subscription = event.data.object as Polar.Subscription;
 	const previousAttributes =
 		typeof event.data.previous_attributes === 'object' && event.data.previous_attributes !== null
 			? (event.data.previous_attributes as Record<string, unknown>)
@@ -422,8 +423,8 @@ export async function detectDowngrade(event: Stripe.Event, org: Organization): P
 	});
 }
 
-export async function detectPause(event: Stripe.Event, org: Organization): Promise<void> {
-	const subscription = event.data.object as Stripe.Subscription;
+export async function detectPause(event: Polar.Event, org: Organization): Promise<void> {
+	const subscription = event.data.object as Polar.Subscription;
 
 	if (!subscription.pause_collection) {
 		return;
@@ -454,8 +455,8 @@ export async function detectPause(event: Stripe.Event, org: Organization): Promi
 	});
 }
 
-export async function detectCancellation(event: Stripe.Event, org: Organization): Promise<void> {
-	const subscription = event.data.object as Stripe.Subscription;
+export async function detectCancellation(event: Polar.Event, org: Organization): Promise<void> {
+	const subscription = event.data.object as Polar.Subscription;
 	const stripeCustomerId = extractCustomerId(subscription.customer);
 
 	if (!stripeCustomerId) {
@@ -481,8 +482,8 @@ export async function detectCancellation(event: Stripe.Event, org: Organization)
 	});
 }
 
-export async function detectTrialEnding(event: Stripe.Event, org: Organization): Promise<void> {
-	const subscription = event.data.object as Stripe.Subscription;
+export async function detectTrialEnding(event: Polar.Event, org: Organization): Promise<void> {
+	const subscription = event.data.object as Polar.Subscription;
 	const trialEnd = typeof subscription.trial_end === 'number' ? subscription.trial_end * 1000 : null;
 
 	if (!trialEnd || trialEnd > Date.now() + 3 * DAY) {

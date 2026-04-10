@@ -2,10 +2,10 @@
 	import { applyAction, enhance } from '$app/forms';
 	import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
 	import StatusDot from '$lib/components/ui/StatusDot.svelte';
-	import { SIGNAL_CONFIGS, type SignalType } from '$lib/types';
+	import { PROVIDER_META, SIGNAL_CONFIGS, type SignalType } from '$lib/types';
 	import type { ActionData, PageData } from './$types';
 
-	type TabKey = 'account' | 'stripe' | 'sequences' | 'notifications';
+	type TabKey = 'account' | 'polar' | 'integrations' | 'sequences' | 'notifications';
 	type Notice = {
 		kind: 'success' | 'error';
 		message: string;
@@ -26,7 +26,7 @@
 	let notice = $state<Notice | null>(null);
 	let pendingAction = $state<string | null>(null);
 	let disconnectConfirmation = $state('');
-	let copiedStripeId = $state(false);
+	let copiedPolarId = $state(false);
 	let webhookResult = $state<WebhookResult | null>(null);
 	let orgName = $state('ChurnPulse workspace');
 	let orgNameForm = $state<HTMLFormElement | null>(null);
@@ -36,7 +36,8 @@
 		downgraded: true,
 		paused: true,
 		cancelled: true,
-		high_mrr_risk: true
+		high_mrr_risk: true,
+		trial_ending: true
 	});
 	let notifications = $state({
 		alert_email: '',
@@ -49,7 +50,8 @@
 		downgraded: true,
 		paused: true,
 		cancelled: true,
-		high_mrr_risk: true
+		high_mrr_risk: true,
+		trial_ending: true
 	});
 	let savedNotifications = $state({
 		alert_email: '',
@@ -59,7 +61,8 @@
 
 	const tabs: Array<{ key: TabKey; label: string }> = [
 		{ key: 'account', label: 'Account' },
-		{ key: 'stripe', label: 'Stripe' },
+		{ key: 'polar', label: 'Polar' },
+		{ key: 'integrations', label: 'Integrations' },
 		{ key: 'sequences', label: 'Sequences' },
 		{ key: 'notifications', label: 'Notifications' }
 	];
@@ -69,8 +72,9 @@
 		day: 'numeric',
 		year: 'numeric'
 	});
+
 	const connectedAtLabel = $derived(
-		data.stripe.connectedAt ? exactDateFormatter.format(new Date(data.stripe.connectedAt)) : null
+		data.polar.connectedAt ? exactDateFormatter.format(new Date(data.polar.connectedAt)) : null
 	);
 	const sequenceDirty = $derived(
 		JSON.stringify(sequencePreferences) !== JSON.stringify(savedSequencePreferences)
@@ -79,6 +83,10 @@
 		JSON.stringify(notifications) !== JSON.stringify(savedNotifications)
 	);
 	const disconnectReady = $derived(disconnectConfirmation === 'disconnect');
+	const stripeConnected = $derived(data.integrations.stripe.connected);
+	const stripeAccountId = $derived(data.integrations.stripe.accountId ?? 'Unavailable');
+	const paddleConnected = $derived(data.integrations.paddle.connected);
+	const lsConnected = $derived(data.integrations.lemonsqueezy.connected);
 
 	$effect(() => {
 		orgName = data.org?.name ?? 'ChurnPulse workspace';
@@ -146,16 +154,22 @@
 		};
 	}
 
-	function copyStripeAccountId(): void {
-		if (!data.stripe.accountId) {
+	function copyPolarOrganizationId(): void {
+		if (!data.polar.organizationId) {
 			return;
 		}
 
-		void navigator.clipboard.writeText(data.stripe.accountId).then(() => {
-			copiedStripeId = true;
+		void navigator.clipboard.writeText(data.polar.organizationId).then(() => {
+			copiedPolarId = true;
 			window.setTimeout(() => {
-				copiedStripeId = false;
+				copiedPolarId = false;
 			}, 1200);
+		});
+	}
+
+	function copyToClipboard(value: string): void {
+		void navigator.clipboard.writeText(value).then(() => {
+			setNotice('success', 'Copied to clipboard.');
 		});
 	}
 
@@ -190,31 +204,32 @@
 	<title>Settings | ChurnPulse</title>
 	<meta
 		name="description"
-		content="Configure workspace settings, Stripe connection controls, sequence preferences, and internal notifications inside ChurnPulse."
+		content="Configure workspace settings, billing integrations, sequence preferences, and internal notifications inside ChurnPulse."
 	/>
 </svelte:head>
 
-<section class="settings-page">
-	<div class="settings-header">
-		<div>
-			<p class="section-kicker">Workspace Controls</p>
-			<h1 class="settings-title">Settings</h1>
+<section class="settings-page" id="settings-page">
+	<div class="settings-header" id="settings-header">
+		<div class="settings-header__copy" id="settings-header-copy">
+			<p class="section-kicker" id="settings-kicker">Workspace Controls</p>
+			<h1 class="settings-title" id="settings-title">Settings</h1>
 		</div>
 	</div>
 
 	{#if notice}
-		<div class={`notice notice-${notice.kind}`}>
-			<p>{notice.message}</p>
+		<div class={`notice notice-${notice.kind}`} id="settings-notice">
+			<p class="notice__message" id="settings-notice-message">{notice.message}</p>
 		</div>
 	{/if}
 
-	<div class="settings-shell">
-		<nav class="tabs" aria-label="Settings">
+	<div class="settings-shell" id="settings-shell">
+		<nav class="tabs" aria-label="Settings" id="settings-tabs">
 			{#each tabs as tab (tab.key)}
 				<button
 					class="tab-button"
 					class:tab-button-active={activeTab === tab.key}
 					type="button"
+					id={`settings-tab-${tab.key}`}
 					onclick={() => {
 						activeTab = tab.key;
 					}}
@@ -224,15 +239,15 @@
 			{/each}
 		</nav>
 
-		<div class="tab-panel">
+		<div class="tab-panel" id="settings-tab-panel">
 			{#if activeTab === 'account'}
-				<section class="panel-section">
-					<div class="section-header">
-						<div>
-							<p class="section-label">Account</p>
-							<h2 class="section-title">Workspace profile</h2>
+				<section class="panel-section" id="account-panel">
+					<div class="section-header" id="account-header">
+						<div class="section-header__copy" id="account-header-copy">
+							<p class="section-label" id="account-label">Account</p>
+							<h2 class="section-title" id="account-title">Workspace profile</h2>
 						</div>
-						<span class="plan-badge">Beta</span>
+						<span class="plan-badge" id="account-plan-badge">Beta</span>
 					</div>
 
 					<form
@@ -241,60 +256,74 @@
 						action="?/updateOrgName"
 						use:enhance={buildEnhanceHandler('updateOrgName')}
 						bind:this={orgNameForm}
+						id="account-name-form"
 					>
-						<label class="field">
-							<span class="field-label">Organization name</span>
+						<label class="field" id="account-name-field">
+							<span class="field-label" id="account-name-label">Organization name</span>
 							<input
 								class="text-input"
 								name="orgName"
 								type="text"
 								bind:value={orgName}
+								id="account-name-input"
 								onblur={handleOrgNameBlur}
 							/>
 						</label>
-						<button class="sr-only" type="submit">Save workspace name</button>
+						<button class="sr-only" type="submit" id="account-name-submit">
+							Save workspace name
+						</button>
 					</form>
 
-					<div class="placeholder-card">
-						<div class="placeholder-header">
-							<div>
-								<p class="section-label">Upgrade to paid</p>
-								<h3 class="placeholder-title">$49/mo</h3>
+					<div class="placeholder-card" id="account-upgrade-card">
+						<div class="placeholder-header" id="account-upgrade-header">
+							<div class="placeholder-copy" id="account-upgrade-copy">
+								<p class="section-label" id="account-upgrade-label">Upgrade to paid</p>
+								<h3 class="placeholder-title" id="account-upgrade-title">$49/mo</h3>
 							</div>
-							<span class="placeholder-status">Coming Soon</span>
+							<span class="placeholder-status" id="account-upgrade-status">Coming Soon</span>
 						</div>
-						<ul class="feature-list">
-							<li>Priority churn recovery support</li>
-							<li>Higher scheduled email throughput</li>
-							<li>Advanced retention reporting exports</li>
+						<ul class="feature-list" id="account-upgrade-features">
+							<li class="feature-list__item" id="account-feature-priority">
+								Priority churn recovery support
+							</li>
+							<li class="feature-list__item" id="account-feature-throughput">
+								Higher scheduled email throughput
+							</li>
+							<li class="feature-list__item" id="account-feature-reporting">
+								Advanced retention reporting exports
+							</li>
 						</ul>
 					</div>
 				</section>
-			{:else if activeTab === 'stripe'}
-				<section class="panel-section">
-					<div class="section-header">
-						<div>
-							<p class="section-label">Stripe</p>
-							<h2 class="section-title">Connection health</h2>
+			{:else if activeTab === 'polar'}
+				<section class="panel-section" id="polar-panel">
+					<div class="section-header" id="polar-header">
+						<div class="section-header__copy" id="polar-header-copy">
+							<p class="section-label" id="polar-label">Polar</p>
+							<h2 class="section-title" id="polar-title">Connection health</h2>
 						</div>
 					</div>
 
-					{#if data.stripe.connected}
-						<div class="stripe-card">
-							<div class="stripe-status">
-								<div class="stripe-status-copy">
-									<div class="stripe-status-line">
+					{#if data.polar.connected}
+						<div class="polar-card" id="polar-card">
+							<div class="polar-status" id="polar-status-block">
+								<div class="polar-status-copy" id="polar-status-copy">
+									<div class="polar-status-line" id="polar-status-line">
 										<StatusDot status="recovered" />
-										<span class="stripe-status-text">Connected</span>
+										<span class="polar-status-text" id="polar-status-text">Connected</span>
 									</div>
-									<div class="stripe-account">
-										<span>{truncateMiddle(data.stripe.accountId)}</span>
-										<button class="copy-button" type="button" onclick={copyStripeAccountId}>
-											{copiedStripeId ? 'Copied' : 'Copy'}
+									<div class="polar-account" id="polar-account">
+										<span class="settings-account font-mono" id="polar-account-value">
+											{truncateMiddle(data.polar.organizationId)}
+										</span>
+										<button class="copy-button" type="button" id="polar-copy-button" onclick={copyPolarOrganizationId}>
+											{copiedPolarId ? 'Copied' : 'Copy'}
 										</button>
 									</div>
 									{#if connectedAtLabel}
-										<p class="stripe-muted">Connected on {connectedAtLabel}</p>
+										<p class="polar-muted" id="polar-connected-at">
+											Connected on {connectedAtLabel}
+										</p>
 									{/if}
 								</div>
 							</div>
@@ -315,33 +344,42 @@
 										webhookResult = candidate as WebhookResult;
 									}
 								})}
+								id="polar-test-webhook-form"
 							>
-								<button class="action-button action-button-cyan" type="submit">
-									Test webhook
+								<button class="action-button action-button-cyan" type="submit" id="polar-test-webhook-button">
+									{pendingAction === 'testWebhook' ? 'Testing...' : 'Test webhook'}
 								</button>
 							</form>
 
 							{#if webhookResult}
-								<div class="webhook-result">
-									<p>Event: {webhookResult.eventGenerated}</p>
-									<p>Signal created: {webhookResult.signalCreated ? 'Yes' : 'No'}</p>
-									<p>Sequence scheduled: {webhookResult.sequenceScheduled ? 'Yes' : 'No'}</p>
+								<div class="webhook-result" id="polar-webhook-result">
+									<p class="webhook-result__line" id="polar-webhook-event">
+										Event: {webhookResult.eventGenerated}
+									</p>
+									<p class="webhook-result__line" id="polar-webhook-signal">
+										Signal created: {webhookResult.signalCreated ? 'Yes' : 'No'}
+									</p>
+									<p class="webhook-result__line" id="polar-webhook-sequence">
+										Sequence scheduled: {webhookResult.sequenceScheduled ? 'Yes' : 'No'}
+									</p>
 								</div>
 							{/if}
 
-							<div class="danger-zone">
-								<div class="danger-copy">
-									<p class="section-label">Disconnect Stripe</p>
-									<p class="danger-text">
-										Type <span class="danger-inline">disconnect</span> to revoke OAuth access and clear saved Stripe connection data from this workspace.
+							<div class="danger-zone" id="polar-danger-zone">
+								<div class="danger-copy" id="polar-danger-copy">
+									<p class="section-label" id="polar-danger-label">Disconnect Polar</p>
+									<p class="danger-text" id="polar-danger-text">
+										Type <span class="danger-inline" id="polar-danger-inline">disconnect</span>
+										to revoke access and clear saved Polar connection data from this workspace.
 									</p>
 								</div>
 
 								<form
 									class="disconnect-form"
 									method="POST"
-									action="?/disconnectStripe"
-									use:enhance={buildEnhanceHandler('disconnectStripe')}
+									action="?/disconnectPolar"
+									use:enhance={buildEnhanceHandler('disconnectPolar')}
+									id="polar-disconnect-form"
 								>
 									<input
 										class="text-input"
@@ -349,44 +387,290 @@
 										type="text"
 										placeholder="disconnect"
 										bind:value={disconnectConfirmation}
+										id="polar-disconnect-input"
 									/>
 									{#if disconnectReady}
-										<p class="danger-warning">This will stop Stripe signal ingestion immediately.</p>
+										<p class="danger-warning" id="polar-danger-warning">
+											This will stop Polar signal ingestion immediately.
+										</p>
 									{/if}
 									<button
 										class="action-button action-button-danger"
 										type="submit"
 										disabled={!disconnectReady}
+										id="polar-disconnect-button"
 									>
-										Disconnect Stripe
+										Disconnect Polar
 									</button>
 								</form>
 							</div>
 						</div>
 					{:else}
-						<div class="compact-connect-card">
-							<div class="compact-connect-copy">
-								<p class="section-label">Stripe connection</p>
-								<h3 class="section-title">Connect Stripe to unlock live churn monitoring</h3>
-								<p class="stripe-muted">
-									Read-only OAuth access only. ChurnPulse starts classifying at-risk customers as soon as the webhook connection is active.
+						<div class="compact-connect-card" id="polar-connect-card">
+							<div class="compact-connect-copy" id="polar-connect-copy">
+								<p class="section-label" id="polar-connect-label">Polar connection</p>
+								<h3 class="section-title" id="polar-connect-title">
+									Connect Polar to unlock live churn monitoring
+								</h3>
+								<p class="polar-muted" id="polar-connect-text">
+									Read-only OAuth access only. ChurnPulse starts classifying at-risk
+									customers as soon as the webhook connection is active.
 								</p>
 							</div>
-							<a class="action-button action-button-cyan" href="/api/stripe/connect">
-								Connect Stripe
+							<a class="action-button action-button-cyan" href="/api/polar/connect" id="polar-connect-link">
+								Connect Polar
 							</a>
 						</div>
 					{/if}
 				</section>
+			{:else if activeTab === 'integrations'}
+				<section class="panel-section" id="integrations-panel">
+					<div class="section-header" id="integrations-header">
+						<div class="section-header__copy" id="integrations-header-copy">
+							<p class="section-label" id="integrations-label">Connected billing platforms</p>
+							<h2 class="section-title" id="integrations-title">Integrations</h2>
+						</div>
+					</div>
+					<p class="polar-muted" id="integrations-intro">
+						ChurnPulse monitors your customers' billing events. Connect the platforms your
+						customers use. Each platform uses read-only or webhook-only access - we never
+						store payment credentials.
+					</p>
+
+					<div class="integrations-grid" id="integrations-grid">
+						<div class="integration-card" id="integration-polar">
+							<div class="integration-card__header" id="integration-polar-header">
+								<div class="integration-card__brand" id="integration-polar-brand">
+									<div
+										class="integration-card__dot"
+										style={`--provider-color: ${PROVIDER_META.polar.color}`}
+										aria-hidden="true"
+										id="integration-polar-dot"
+									></div>
+									<h3 class="integration-card__name" id="integration-polar-name">Polar</h3>
+									<span class="badge badge-brand integration-card__type-badge" id="integration-polar-type">
+										OAuth
+									</span>
+								</div>
+								{#if data.polar.connected}
+									<span class="badge badge-success" id="polar-status">Connected</span>
+								{:else}
+									<span class="badge badge-muted" id="polar-status">Not connected</span>
+								{/if}
+							</div>
+							<p class="integration-card__desc" id="integration-polar-desc">
+								Connect your customers' Polar workspaces to detect subscription
+								cancellations, payment failures, and churn signals in real time.
+							</p>
+							{#if data.polar.connected}
+								<div class="integration-card__meta" id="polar-meta">
+									<span class="settings-account font-mono" id="polar-account-id">
+										{truncateMiddle(data.polar.accountId)}
+									</span>
+									<form method="POST" action="?/disconnectPolar" id="polar-disconnect-inline-form">
+										<input type="hidden" name="confirmation" value="disconnect" id="polar-disconnect-hidden" />
+										<button class="action-button action-button-danger" type="submit" id="polar-disconnect-btn">
+											Disconnect
+										</button>
+									</form>
+								</div>
+							{:else}
+								<a class="action-button action-button-cyan" href="/api/polar/connect" id="polar-connect-btn">
+									Connect Polar -&gt;
+								</a>
+							{/if}
+						</div>
+
+						<div class="integration-card" id="integration-stripe">
+							<div class="integration-card__header" id="integration-stripe-header">
+								<div class="integration-card__brand" id="integration-stripe-brand">
+									<div
+										class="integration-card__dot"
+										style={`--provider-color: ${PROVIDER_META.stripe.color}`}
+										aria-hidden="true"
+										id="integration-stripe-dot"
+									></div>
+									<h3 class="integration-card__name" id="integration-stripe-name">Stripe</h3>
+									<span class="badge badge-brand integration-card__type-badge" id="integration-stripe-type">
+										OAuth
+									</span>
+								</div>
+								{#if stripeConnected}
+									<span class="badge badge-success" id="stripe-status">Connected</span>
+								{:else}
+									<span class="badge badge-muted" id="stripe-status">Not connected</span>
+								{/if}
+							</div>
+							<p class="integration-card__desc" id="integration-stripe-desc">
+								Connect your customers' Stripe accounts via read-only OAuth to monitor
+								card failures, plan downgrades, cancellations, and trial endings.
+							</p>
+							{#if !stripeConnected}
+								<a class="action-button action-button-cyan" href="/api/stripe/connect" id="stripe-connect-btn">
+									Connect Stripe -&gt;
+								</a>
+							{:else}
+								<span class="settings-account font-mono" id="stripe-account-id">
+									{truncateMiddle(stripeAccountId)}
+								</span>
+							{/if}
+						</div>
+
+						<div class="integration-card" id="integration-paddle">
+							<div class="integration-card__header" id="integration-paddle-header">
+								<div class="integration-card__brand" id="integration-paddle-brand">
+									<div
+										class="integration-card__dot"
+										style={`--provider-color: ${PROVIDER_META.paddle.color}`}
+										aria-hidden="true"
+										id="integration-paddle-dot"
+									></div>
+									<h3 class="integration-card__name" id="integration-paddle-name">Paddle</h3>
+									<span class="badge badge-muted integration-card__type-badge" id="integration-paddle-type">
+										Webhook
+									</span>
+								</div>
+								{#if paddleConnected}
+									<span class="badge badge-success" id="paddle-status">Connected</span>
+								{:else}
+									<span class="badge badge-muted" id="paddle-status">Not connected</span>
+								{/if}
+							</div>
+							<p class="integration-card__desc" id="integration-paddle-desc">
+								Point your Paddle webhook at ChurnPulse to detect subscription events.
+								Paste your Paddle webhook signing secret below.
+							</p>
+							<div class="integration-card__setup" id="paddle-setup">
+								<div class="integration-card__endpoint-row" id="paddle-endpoint-row">
+									<span class="docs-code font-mono" id="paddle-endpoint-url">
+										{data.appUrl}/api/webhooks/paddle
+									</span>
+									<button
+										class="copy-button"
+										type="button"
+										id="paddle-copy-endpoint-btn"
+										onclick={() => copyToClipboard(`${data.appUrl}/api/webhooks/paddle`)}
+									>
+										Copy URL
+									</button>
+								</div>
+								<form
+									method="POST"
+									action="?/savePaddleSecret"
+									class="integration-card__secret-form"
+									id="paddle-secret-form"
+									use:enhance={buildEnhanceHandler('savePaddleSecret')}
+								>
+									<label class="field" for="paddle-secret-input" id="paddle-secret-field">
+										<span class="field-label" id="paddle-secret-label">
+											Paddle webhook signing secret
+										</span>
+									</label>
+									<input
+										class="text-input"
+										id="paddle-secret-input"
+										name="secret"
+										type="password"
+										placeholder="pdl_ntfset_..."
+										autocomplete="off"
+									/>
+									<button class="action-button action-button-cyan" type="submit" id="paddle-save-btn">
+										Save secret
+									</button>
+								</form>
+							</div>
+						</div>
+
+						<div class="integration-card" id="integration-lemonsqueezy">
+							<div class="integration-card__header" id="integration-ls-header">
+								<div class="integration-card__brand" id="integration-ls-brand">
+									<div
+										class="integration-card__dot"
+										style={`--provider-color: ${PROVIDER_META.lemonsqueezy.color}`}
+										aria-hidden="true"
+										id="integration-ls-dot"
+									></div>
+									<h3 class="integration-card__name" id="integration-ls-name">
+										Lemon Squeezy
+									</h3>
+									<span class="badge badge-muted integration-card__type-badge" id="integration-ls-type">
+										Webhook
+									</span>
+								</div>
+								{#if lsConnected}
+									<span class="badge badge-success" id="ls-status">Connected</span>
+								{:else}
+									<span class="badge badge-muted" id="ls-status">Not connected</span>
+								{/if}
+							</div>
+							<p class="integration-card__desc" id="integration-ls-desc">
+								Point your Lemon Squeezy webhook at ChurnPulse and add your signing
+								secret. Supports subscription cancellation, payment failures, and paused
+								plans.
+							</p>
+							<div class="integration-card__setup" id="ls-setup">
+								<div class="integration-card__endpoint-row" id="ls-endpoint-row">
+									<span class="docs-code font-mono" id="ls-endpoint-url">
+										{data.appUrl}/api/webhooks/lemonsqueezy
+									</span>
+									<button
+										class="copy-button"
+										type="button"
+										id="ls-copy-endpoint-btn"
+										onclick={() => copyToClipboard(`${data.appUrl}/api/webhooks/lemonsqueezy`)}
+									>
+										Copy URL
+									</button>
+								</div>
+								<form
+									method="POST"
+									action="?/saveLemonSqueezySecret"
+									class="integration-card__secret-form"
+									id="ls-secret-form"
+									use:enhance={buildEnhanceHandler('saveLemonSqueezySecret')}
+								>
+									<label class="field" for="ls-secret-input" id="ls-secret-field">
+										<span class="field-label" id="ls-secret-label">
+											Lemon Squeezy signing secret
+										</span>
+									</label>
+									<input
+										class="text-input"
+										id="ls-secret-input"
+										name="secret"
+										type="password"
+										placeholder="Your LS signing secret"
+										autocomplete="off"
+									/>
+									<button class="action-button action-button-cyan" type="submit" id="ls-save-btn">
+										Save secret
+									</button>
+								</form>
+							</div>
+						</div>
+					</div>
+
+					<div class="info-box" id="integrations-info">
+						<p class="info-box__text" id="integrations-info-text">
+							<span class="info-box__strong" id="integrations-info-strong">
+								How to route webhooks:
+							</span>
+							Each platform above shows a webhook URL. Paste that URL in the platform's
+							webhook settings dashboard, then enter the signing secret below it.
+							ChurnPulse verifies every incoming signature - unverified payloads are
+							silently dropped.
+						</p>
+					</div>
+				</section>
 			{:else if activeTab === 'sequences'}
-				<section class="panel-section">
-					<div class="section-header">
-						<div>
-							<p class="section-label">Sequences</p>
-							<h2 class="section-title">Signal-to-sequence coverage</h2>
+				<section class="panel-section" id="sequences-panel">
+					<div class="section-header" id="sequences-header">
+						<div class="section-header__copy" id="sequences-header-copy">
+							<p class="section-label" id="sequences-label">Sequences</p>
+							<h2 class="section-title" id="sequences-title">Signal-to-sequence coverage</h2>
 						</div>
 						{#if sequenceDirty}
-							<span class="unsaved-indicator">Unsaved</span>
+							<span class="unsaved-indicator" id="sequences-unsaved">Unsaved</span>
 						{/if}
 					</div>
 
@@ -397,15 +681,20 @@
 						use:enhance={buildEnhanceHandler('updateSequencePreferences', () => {
 							savedSequencePreferences = { ...sequencePreferences };
 						})}
+						id="sequences-form"
 					>
-						<input type="hidden" name="preferences" value={JSON.stringify(sequencePreferences)} />
+						<input type="hidden" name="preferences" value={JSON.stringify(sequencePreferences)} id="sequences-hidden-preferences" />
 
-						<div class="toggle-list">
+						<div class="toggle-list" id="sequences-toggle-list">
 							{#each data.sequenceSteps as item (item.type)}
-								<div class="toggle-row">
-									<div class="toggle-copy">
-										<p class="toggle-title">{SIGNAL_CONFIGS[item.type].label}</p>
-										<p class="toggle-description">{item.description}</p>
+								<div class="toggle-row" id={`sequence-toggle-${item.type}`}>
+									<div class="toggle-copy" id={`sequence-copy-${item.type}`}>
+										<p class="toggle-title" id={`sequence-title-${item.type}`}>
+											{SIGNAL_CONFIGS[item.type].label}
+										</p>
+										<p class="toggle-description" id={`sequence-description-${item.type}`}>
+											{item.description}
+										</p>
 									</div>
 									<button
 										class="toggle"
@@ -414,27 +703,31 @@
 										role="switch"
 										aria-checked={sequencePreferences[item.type]}
 										aria-label={`Toggle ${SIGNAL_CONFIGS[item.type].label} sequence`}
+										id={`sequence-switch-${item.type}`}
 										onclick={() => {
 											toggleSequence(item.type);
 										}}
 									>
-										<span class="toggle-thumb"></span>
+										<span class="toggle-thumb" id={`sequence-thumb-${item.type}`}></span>
 									</button>
 								</div>
 							{/each}
 						</div>
 
-						<div class="info-box">
-							<p>All sequences use AI-generated personalization before send.</p>
+						<div class="info-box" id="sequences-info">
+							<p class="info-box__text" id="sequences-info-text">
+								All sequences use AI-generated personalization before send.
+							</p>
 						</div>
 
-						<div class="save-row">
+						<div class="save-row" id="sequences-save-row">
 							<button
 								class="action-button"
 								class:action-button-unsaved={sequenceDirty}
 								class:action-button-muted={!sequenceDirty}
 								type="submit"
 								disabled={!sequenceDirty}
+								id="sequences-save-button"
 							>
 								Save sequence settings
 							</button>
@@ -442,14 +735,14 @@
 					</form>
 				</section>
 			{:else}
-				<section class="panel-section">
-					<div class="section-header">
-						<div>
-							<p class="section-label">Notifications</p>
-							<h2 class="section-title">Internal alert routing</h2>
+				<section class="panel-section" id="notifications-panel">
+					<div class="section-header" id="notifications-header">
+						<div class="section-header__copy" id="notifications-header-copy">
+							<p class="section-label" id="notifications-label">Notifications</p>
+							<h2 class="section-title" id="notifications-title">Internal alert routing</h2>
 						</div>
 						{#if notificationsDirty}
-							<span class="unsaved-indicator">Unsaved</span>
+							<span class="unsaved-indicator" id="notifications-unsaved">Unsaved</span>
 						{/if}
 					</div>
 
@@ -460,15 +753,17 @@
 						use:enhance={buildEnhanceHandler('updateNotificationPreferences', () => {
 							savedNotifications = { ...notifications };
 						})}
+						id="notifications-form"
 					>
-						<input type="hidden" name="notifications" value={JSON.stringify(notifications)} />
+						<input type="hidden" name="notifications" value={JSON.stringify(notifications)} id="notifications-hidden" />
 
-						<label class="field">
-							<span class="field-label">Alert email address</span>
+						<label class="field" id="notifications-email-field">
+							<span class="field-label" id="notifications-email-label">Alert email address</span>
 							<input
 								class="text-input"
 								type="email"
 								bind:value={notifications.alert_email}
+								id="notifications-email-input"
 								oninput={(event) => {
 									notifications = {
 										...notifications,
@@ -478,10 +773,14 @@
 							/>
 						</label>
 
-						<div class="toggle-row">
-							<div class="toggle-copy">
-								<p class="toggle-title">Email me when High MRR customer detected</p>
-								<p class="toggle-description">Enabled by default for immediate internal escalation.</p>
+						<div class="toggle-row" id="notifications-high-mrr-row">
+							<div class="toggle-copy" id="notifications-high-mrr-copy">
+								<p class="toggle-title" id="notifications-high-mrr-title">
+									Email me when High MRR customer detected
+								</p>
+								<p class="toggle-description" id="notifications-high-mrr-description">
+									Enabled by default for immediate internal escalation.
+								</p>
 							</div>
 							<button
 								class="toggle"
@@ -490,18 +789,23 @@
 								role="switch"
 								aria-checked={notifications.high_mrr_alerts_enabled}
 								aria-label="Toggle High MRR customer alerts"
+								id="notifications-high-mrr-switch"
 								onclick={() => {
 									toggleNotification('high_mrr_alerts_enabled');
 								}}
 							>
-								<span class="toggle-thumb"></span>
+								<span class="toggle-thumb" id="notifications-high-mrr-thumb"></span>
 							</button>
 						</div>
 
-						<div class="toggle-row">
-							<div class="toggle-copy">
-								<p class="toggle-title">Daily digest of signals</p>
-								<p class="toggle-description">Sends a morning summary of yesterday’s churn signals.</p>
+						<div class="toggle-row" id="notifications-digest-row">
+							<div class="toggle-copy" id="notifications-digest-copy">
+								<p class="toggle-title" id="notifications-digest-title">
+									Daily digest of signals
+								</p>
+								<p class="toggle-description" id="notifications-digest-description">
+									Sends a morning summary of yesterday's churn signals.
+								</p>
 							</div>
 							<button
 								class="toggle"
@@ -510,21 +814,23 @@
 								role="switch"
 								aria-checked={notifications.daily_digest_enabled}
 								aria-label="Toggle daily digest notifications"
+								id="notifications-digest-switch"
 								onclick={() => {
 									toggleNotification('daily_digest_enabled');
 								}}
 							>
-								<span class="toggle-thumb"></span>
+								<span class="toggle-thumb" id="notifications-digest-thumb"></span>
 							</button>
 						</div>
 
-						<div class="save-row">
+						<div class="save-row" id="notifications-save-row">
 							<button
 								class="action-button"
 								class:action-button-unsaved={notificationsDirty}
 								class:action-button-muted={!notificationsDirty}
 								type="submit"
 								disabled={!notificationsDirty}
+								id="notifications-save-button"
 							>
 								Save notification settings
 							</button>
@@ -535,410 +841,3 @@
 		</div>
 	</div>
 </section>
-
-<style>
-	.settings-page {
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
-		padding: 1.5rem;
-	}
-
-	.settings-header,
-	.settings-shell,
-	.panel-section,
-	.placeholder-card,
-	.stripe-card,
-	.compact-connect-card,
-	.info-box,
-	.notice {
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		background: var(--bg-surface);
-	}
-
-	.section-kicker,
-	.section-label,
-	.plan-badge,
-	.placeholder-status,
-	.unsaved-indicator {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 0.68rem;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-	}
-
-	.section-kicker,
-	.section-label {
-		color: var(--text-muted);
-	}
-
-	.settings-title,
-	.section-title {
-		margin: 0.35rem 0 0;
-		font-family: 'IBM Plex Mono', monospace;
-		font-weight: 500;
-		color: var(--text-primary);
-	}
-
-	.settings-title {
-		font-size: 1.5rem;
-	}
-
-	.section-title {
-		font-size: 1.15rem;
-	}
-
-	.notice {
-		padding: 0.9rem 1rem;
-	}
-
-	.notice p {
-		margin: 0;
-		font-size: 0.86rem;
-	}
-
-	.notice-success {
-		border-left: 3px solid var(--status-success);
-	}
-
-	.notice-error {
-		border-left: 3px solid var(--status-danger);
-	}
-
-	.settings-shell {
-		display: grid;
-		grid-template-columns: 13rem minmax(0, 1fr);
-	}
-
-	.tabs {
-		display: flex;
-		flex-direction: column;
-		border-right: 1px solid rgba(255, 255, 255, 0.08);
-		background: var(--bg-elevated);
-	}
-
-	.tab-button {
-		padding: 1rem 1.1rem;
-		border-left: 2px solid transparent;
-		color: var(--text-secondary);
-		text-align: left;
-		transition:
-			border-color 140ms ease,
-			background-color 140ms ease,
-			color 140ms ease;
-	}
-
-	.tab-button:hover {
-		background: rgba(255, 255, 255, 0.03);
-		color: var(--text-primary);
-	}
-
-	.tab-button-active {
-		border-left-color: var(--accent-cyan);
-		background: rgba(0, 229, 255, 0.08);
-		color: var(--text-primary);
-	}
-
-	.tab-panel {
-		padding: 1.25rem;
-	}
-
-	.panel-section {
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
-		padding: 1.25rem;
-	}
-
-	.section-header,
-	.placeholder-header,
-	.toggle-row,
-	.compact-connect-card,
-	.save-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-
-	.field-stack,
-	.preferences-form {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.field {
-		display: grid;
-		gap: 0.5rem;
-	}
-
-	.field-label,
-	.stripe-muted,
-	.toggle-description,
-	.danger-text {
-		font-size: 0.82rem;
-		color: var(--text-secondary);
-	}
-
-	.text-input {
-		width: 100%;
-		padding: 0.8rem 0.9rem;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		background: var(--bg-base);
-		color: var(--text-primary);
-	}
-
-	.text-input:focus {
-		outline: none;
-		border-color: var(--accent-cyan);
-		box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.24);
-	}
-
-	.plan-badge,
-	.placeholder-status,
-	.unsaved-indicator {
-		padding: 0.35rem 0.55rem;
-		border: 1px solid rgba(0, 229, 255, 0.22);
-		background: rgba(0, 229, 255, 0.08);
-		color: var(--accent-cyan);
-	}
-
-	.placeholder-card,
-	.webhook-result,
-	.info-box,
-	.danger-zone,
-	.compact-connect-card {
-		padding: 1rem;
-	}
-
-	.placeholder-title {
-		margin: 0.35rem 0 0;
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 1.4rem;
-		color: var(--text-primary);
-	}
-
-	.feature-list {
-		display: grid;
-		gap: 0.6rem;
-		margin: 1rem 0 0;
-		padding: 0 0 0 1rem;
-		color: var(--text-secondary);
-	}
-
-	.stripe-card {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		padding: 1.1rem;
-	}
-
-	.stripe-status-line,
-	.stripe-account,
-	.inline-form {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.65rem;
-	}
-
-	.stripe-status-text,
-	.stripe-account,
-	.toggle-title {
-		font-size: 0.92rem;
-		color: var(--text-primary);
-	}
-
-	.stripe-account {
-		margin-top: 0.45rem;
-		font-family: 'IBM Plex Mono', monospace;
-	}
-
-	.copy-button {
-		padding: 0.3rem 0.45rem;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		font-size: 0.72rem;
-		color: var(--text-secondary);
-	}
-
-	.action-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 2.75rem;
-		padding: 0.7rem 1rem;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		font-size: 0.78rem;
-		font-weight: 600;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
-		transition:
-			border-color 140ms ease,
-			background-color 140ms ease,
-			color 140ms ease,
-			opacity 140ms ease;
-	}
-
-	.action-button:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-
-	.action-button-cyan {
-		border-color: rgba(0, 229, 255, 0.2);
-		background: rgba(0, 229, 255, 0.08);
-		color: var(--accent-cyan);
-	}
-
-	.action-button-danger {
-		border-color: rgba(255, 68, 89, 0.28);
-		color: var(--status-danger);
-	}
-
-	.action-button-muted {
-		color: var(--text-secondary);
-	}
-
-	.action-button-unsaved {
-		border-color: rgba(255, 184, 0, 0.34);
-		background: rgba(255, 184, 0, 0.08);
-		color: var(--status-warning);
-	}
-
-	.webhook-result p,
-	.info-box p,
-	.danger-warning {
-		margin: 0;
-		font-size: 0.82rem;
-		color: var(--text-primary);
-	}
-
-	.webhook-result {
-		display: grid;
-		gap: 0.35rem;
-	}
-
-	.danger-zone {
-		display: grid;
-		gap: 1rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.08);
-	}
-
-	.danger-inline {
-		font-family: 'IBM Plex Mono', monospace;
-		color: var(--status-danger);
-	}
-
-	.disconnect-form {
-		display: grid;
-		gap: 0.75rem;
-	}
-
-	.danger-warning {
-		color: var(--status-danger);
-	}
-
-	.toggle-list {
-		display: grid;
-		gap: 0.95rem;
-	}
-
-	.toggle-copy {
-		flex: 1;
-	}
-
-	.toggle-title {
-		margin: 0;
-	}
-
-	.toggle-description {
-		margin: 0.3rem 0 0;
-	}
-
-	.toggle {
-		position: relative;
-		width: 2.5rem;
-		height: 1.5rem;
-		border: 1px solid transparent;
-		background: rgba(255, 255, 255, 0.08);
-		transition: background-color 160ms ease;
-	}
-
-	.toggle-thumb {
-		position: absolute;
-		top: 0.125rem;
-		left: 0.125rem;
-		width: 1rem;
-		height: 1rem;
-		background: var(--text-muted);
-		transition:
-			transform 160ms ease,
-			background-color 160ms ease;
-	}
-
-	.toggle-active {
-		background: rgba(0, 229, 255, 0.2);
-	}
-
-	.toggle-active .toggle-thumb {
-		transform: translateX(1rem);
-		background: var(--accent-cyan);
-	}
-
-	.info-box {
-		border-color: rgba(0, 229, 255, 0.16);
-		background: rgba(0, 229, 255, 0.05);
-	}
-
-	.compact-connect-card {
-		align-items: flex-start;
-	}
-
-	.compact-connect-copy {
-		max-width: 34rem;
-	}
-
-	.sr-only {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
-	}
-
-	@media (max-width: 960px) {
-		.settings-shell {
-			grid-template-columns: 1fr;
-		}
-
-		.tabs {
-			flex-direction: row;
-			overflow-x: auto;
-			border-right: 0;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-		}
-
-		.tab-button {
-			min-width: 9rem;
-			border-left: 0;
-			border-bottom: 2px solid transparent;
-		}
-
-		.tab-button-active {
-			border-bottom-color: var(--accent-cyan);
-		}
-
-		.section-header,
-		.placeholder-header,
-		.toggle-row,
-		.compact-connect-card,
-		.save-row {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-	}
-</style>

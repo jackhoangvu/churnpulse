@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { organizationHasActiveProvider } from '$lib/provider-utils';
 import { loadDashboardStats } from '$lib/server/dashboard-stats';
 import { logError } from '$lib/server/logger';
 import { resolveOrCreateOrganization } from '$lib/server/organizations';
@@ -17,7 +18,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	try {
 		const organization = await resolveOrCreateOrganization(locals.session);
 
-		if (!organization?.stripe_account_id) {
+		if (!organization || (!organization.polar_organization_id && !organizationHasActiveProvider(organization.providers))) {
 			return json(
 				{
 					connected: false,

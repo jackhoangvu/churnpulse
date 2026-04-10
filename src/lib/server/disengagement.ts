@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { logger, schedules } from '@trigger.dev/sdk/v3';
-import Stripe from 'stripe';
+import Polar from 'stripe';
 import { env } from '$lib/env';
 import { scheduleSequence } from '$lib/server/sequences';
 import { logSignalDetected } from '$lib/server/logger';
@@ -26,7 +26,7 @@ async function hasRecentDisengagedSignal(orgId: string, stripeCustomerId: string
 		.from('churn_signals')
 		.select('id')
 		.eq('org_id', orgId)
-		.eq('stripe_customer_id', stripeCustomerId)
+		.eq('polar_customer_id', stripeCustomerId)
 		.eq('signal_type', 'disengaged')
 		.gte('detected_at', since)
 		.limit(1)
@@ -41,8 +41,8 @@ async function hasRecentDisengagedSignal(orgId: string, stripeCustomerId: string
 
 async function insertDisengagedSignal(
 	org: Organization,
-	subscription: Stripe.Subscription,
-	customer: Stripe.Customer
+	subscription: Polar.Subscription,
+	customer: Polar.Customer
 ): Promise<void> {
 	if (await hasRecentDisengagedSignal(org.id, customer.id)) {
 		return;
@@ -56,7 +56,7 @@ async function insertDisengagedSignal(
 		.from('churn_signals')
 		.insert({
 			org_id: org.id,
-			stripe_customer_id: customer.id,
+			polar_customer_id: customer.id,
 			customer_email: customer.email,
 			customer_name: customer.name,
 			signal_type: 'disengaged',
@@ -76,6 +76,7 @@ async function insertDisengagedSignal(
 
 	const signal = {
 		...(data as unknown as ChurnSignalRow),
+		provider: ((data as unknown as ChurnSignalRow).provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: 'disengaged',
 		status: 'detected'
 	} satisfies ChurnSignal;
@@ -97,7 +98,7 @@ export const scanDisengagedCustomers = schedules.task({
 			const { data, error } = await admin
 				.from('organizations')
 				.select('*')
-				.not('stripe_access_token', 'is', null);
+				.not('polar_access_token', 'is', null);
 			const organizations = (data as unknown as OrganizationRow[] | null) ?? [];
 
 			if (error) {
@@ -106,11 +107,11 @@ export const scanDisengagedCustomers = schedules.task({
 
 			for (const org of organizations) {
 				try {
-					if (!org.stripe_access_token) {
+					if (!org.polar_access_token) {
 						continue;
 					}
 
-					const stripe = new Stripe(org.stripe_access_token);
+					const stripe = new Polar(org.polar_access_token);
 					const subscriptions = await stripe.subscriptions.list({
 						status: 'active',
 						limit: 100

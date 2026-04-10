@@ -1,18 +1,12 @@
 import { redirect } from '@sveltejs/kit';
-import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { STRIPE_CLIENT_ID, STRIPE_SECRET_KEY } from '$env/static/private';
 import type { RequestHandler } from './$types';
+import { upsertProviderConnection } from '$lib/provider-utils';
 import { env } from '$lib/env';
+import { admin } from '$lib/server/admin';
 import { logError } from '$lib/server/logger';
-import type { Database, Json, OrganizationRow } from '$lib/types/supabase';
-
-const admin = createClient<Database, 'public'>(env.supabaseUrl, env.supabaseServiceRoleKey, {
-	auth: {
-		autoRefreshToken: false,
-		persistSession: false
-	}
-});
+import type { Json, OrganizationRow } from '$lib/types/supabase';
 
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
@@ -59,6 +53,14 @@ function errorRedirect(code: string, next = '/dashboard'): never {
 	throw redirect(303, `${next}?error=${code}`);
 }
 
+function mergeMetadata(existing: Json | null): Record<string, Json | undefined> {
+	if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+		return existing as Record<string, Json | undefined>;
+	}
+
+	return {};
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const code = url.searchParams.get('code');
 	const state = url.searchParams.get('state');
@@ -98,7 +100,6 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 
 		const tokens = (await response.json()) as Partial<OAuthResponse> & { error?: string };
-
 		if (!tokens.access_token || !tokens.refresh_token || !tokens.stripe_user_id || tokens.error) {
 			errorRedirect('token_exchange_failed', nextPath);
 		}
@@ -111,8 +112,7 @@ export const GET: RequestHandler = async ({ url }) => {
 					'customer.subscription.updated',
 					'customer.subscription.paused',
 					'customer.subscription.deleted',
-					'customer.subscription.trial_will_end',
-					'customer.updated'
+					'customer.subscription.trial_will_end'
 				]
 			},
 			{
@@ -120,28 +120,39 @@ export const GET: RequestHandler = async ({ url }) => {
 			}
 		);
 
-		const { data: existingOrg } = await admin
+		if (!webhook.secret) {
+			errorRedirect('webhook_secret_missing', nextPath);
+		}
+
+		const { data: existingOrg, error: selectError } = await admin
 			.from('organizations')
 			.select('*')
 			.eq('id', orgId)
 			.maybeSingle();
-		const orgRow = existingOrg as unknown as OrganizationRow | null;
-		const existingMetadata =
-			orgRow && typeof orgRow.metadata === 'object' && orgRow.metadata !== null
-				? (orgRow.metadata as Record<string, Json | undefined>)
-				: {};
+
+		if (selectError) {
+			throw selectError;
+		}
+
+		const organization = existingOrg as unknown as OrganizationRow | null;
+		const providers = upsertProviderConnection(organization?.providers ?? null, {
+			type: 'stripe',
+			account_id: tokens.stripe_user_id,
+			access_token: tokens.access_token,
+			refresh_token: tokens.refresh_token,
+			webhook_secret: webhook.secret,
+			connected_at: new Date().toISOString(),
+			status: 'active'
+		});
 
 		const { error: updateError } = await admin
 			.from('organizations')
 			.update({
 				metadata: {
-					...existingMetadata,
+					...mergeMetadata(organization?.metadata ?? null),
 					stripe_connected_at: new Date().toISOString()
 				} as Json,
-				stripe_account_id: tokens.stripe_user_id,
-				stripe_access_token: tokens.access_token,
-				stripe_refresh_token: tokens.refresh_token,
-				stripe_webhook_secret: webhook.secret
+				providers: providers as unknown as Json
 			} as never)
 			.eq('id', orgId);
 

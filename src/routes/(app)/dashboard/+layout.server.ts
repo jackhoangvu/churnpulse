@@ -1,4 +1,5 @@
 import type { LayoutServerLoad } from './$types';
+import { organizationHasActiveProvider } from '$lib/provider-utils';
 import { resolveOrCreateOrganization, serializeSessionUser } from '$lib/server/organizations';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -8,6 +9,6 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	return {
 		org,
 		user,
-		isConnected: Boolean(org?.stripe_account_id)
+		isConnected: Boolean(org && (org.polar_organization_id || organizationHasActiveProvider(org.providers)))
 	};
 };

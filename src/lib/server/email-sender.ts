@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import Stripe from 'stripe';
+import Polar from 'stripe';
 import { env } from '$lib/env';
 import { classifyChurnSignal, type AIClassification } from '$lib/server/ai-classifier';
 import { generateEmailContent } from '$lib/server/email-templates';
@@ -23,7 +23,8 @@ const signalTypes: SignalType[] = [
 	'downgraded',
 	'paused',
 	'cancelled',
-	'high_mrr_risk'
+	'high_mrr_risk',
+	'trial_ending'
 ];
 
 const signalStatuses: SignalStatus[] = [
@@ -53,6 +54,7 @@ function isSignalStatus(value: string): value is SignalStatus {
 function toTypedSignal(signal: ChurnSignalRow): ChurnSignal {
 	return {
 		...signal,
+		provider: (signal.provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: isSignalType(signal.signal_type) ? signal.signal_type : 'disengaged',
 		status: isSignalStatus(signal.status) ? signal.status : 'detected',
 		metadata: signal.metadata
@@ -91,38 +93,38 @@ function getFromAddress(): string {
 		: 'ChurnPulse <noreply@churnpulse.io>';
 }
 
-function getStripeClient(apiKey: string): Stripe {
-	return new Stripe(apiKey);
+function getPolarClient(apiKey: string): Polar {
+	return new Polar(apiKey);
 }
 
 async function getBillingPortalUrl(
 	signal: ChurnSignal,
 	org: OrganizationRow
 ): Promise<string | undefined> {
-	if (!signal.stripe_customer_id) {
+	if (!signal.polar_customer_id) {
 		return undefined;
 	}
 
 	try {
-		if (org.stripe_access_token) {
-			const stripe = getStripeClient(org.stripe_access_token);
+		if (org.polar_access_token) {
+			const stripe = getPolarClient(org.polar_access_token);
 			const session = await stripe.billingPortal.sessions.create({
-				customer: signal.stripe_customer_id,
+				customer: signal.polar_customer_id,
 				return_url: `${env.publicAppUrl}/dashboard`
 			});
 
 			return session.url;
 		}
 
-		if (org.stripe_account_id) {
-			const stripe = getStripeClient(env.stripeSecretKey);
+		if (org.polar_account_id) {
+			const stripe = getPolarClient(env.stripeSecretKey);
 			const session = await stripe.billingPortal.sessions.create(
 				{
-					customer: signal.stripe_customer_id,
+					customer: signal.polar_customer_id,
 					return_url: `${env.publicAppUrl}/dashboard`
 				},
 				{
-					stripeAccount: org.stripe_account_id
+					stripeAccount: org.polar_account_id
 				}
 			);
 

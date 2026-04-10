@@ -39,7 +39,8 @@ const signalTypes: SignalType[] = [
 	'downgraded',
 	'paused',
 	'cancelled',
-	'high_mrr_risk'
+	'high_mrr_risk',
+	'trial_ending'
 ];
 const signalStatuses: SignalStatus[] = [
 	'detected',
@@ -54,7 +55,8 @@ const sequenceLengths: Record<SignalType, number> = {
 	downgraded: 2,
 	paused: 3,
 	cancelled: 3,
-	high_mrr_risk: 1
+	high_mrr_risk: 1,
+	trial_ending: 1
 };
 
 function toSignalType(value: string): SignalType {
@@ -68,6 +70,7 @@ function toSignalStatus(value: string): SignalStatus {
 function toSignal(row: ChurnSignalRow): ChurnSignal {
 	return {
 		...row,
+		provider: (row.provider as ChurnSignal['provider']) ?? 'polar',
 		signal_type: toSignalType(row.signal_type),
 		status: toSignalStatus(row.status),
 		metadata: row.metadata
