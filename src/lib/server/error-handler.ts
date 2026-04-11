@@ -24,7 +24,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
 
-function isStripeLikeError(error: unknown): error is {
+function isPolarLikeError(error: unknown): error is {
 	type?: string;
 	message?: string;
 	statusCode?: number;
@@ -58,12 +58,12 @@ export function handleApiError(error: unknown): Response {
 		});
 	}
 
-	if (isStripeLikeError(error)) {
+	if (isPolarLikeError(error)) {
 		const message =
 			error.userMessage ??
-			'There was a problem talking to Stripe. Please try again in a moment.';
+			'There was a problem talking to Polar. Please try again in a moment.';
 
-		return new Response(buildBody(400, 'stripe_error', message), {
+		return new Response(buildBody(400, 'polar_error', message), {
 			status: 400,
 			headers: { 'content-type': 'application/json' }
 		});
@@ -102,12 +102,12 @@ export function assertOrg(org: Organization | null): asserts org is Organization
 	}
 }
 
-export function assertStripeConnected(org: Organization): void {
-	if (!org.stripe_access_token) {
+export function assertPolarConnected(org: Organization): void {
+	if (!org.polar_access_token) {
 		throw new ApiError({
 			status: 400,
-			code: 'stripe_not_connected',
-			publicMessage: 'Connect your Stripe account first'
+			code: 'polar_not_connected',
+			publicMessage: 'Connect your Polar account first'
 		});
 	}
 }

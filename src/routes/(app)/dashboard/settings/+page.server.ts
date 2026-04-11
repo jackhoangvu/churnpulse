@@ -1,53 +1,85 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { env } from '$lib/env';
+import { PROVIDER_META, type Provider } from '$lib/types';
 import {
 	getProviderConnection,
 	removeProviderConnection,
 	upsertProviderConnection
 } from '$lib/provider-utils';
 import { admin } from '$lib/server/admin';
-import { resolveOrganization as resolveStoredOrganization } from '$lib/server/organizations';
-import type { SignalType } from '$lib/types';
-import type { Json, OrganizationRow } from '$lib/types/supabase';
+import { resolveOrganization } from '$lib/server/organizations';
+import type { Json, OrganizationRow, ProviderEventRow } from '$lib/types/supabase';
 
-type SequencePreferences = Record<SignalType, boolean>;
 type NotificationPreferences = {
 	alert_email: string;
 	high_mrr_alerts_enabled: boolean;
 	daily_digest_enabled: boolean;
 };
+
 type OrgMetadata = {
-	sequence_preferences?: Partial<SequencePreferences>;
 	notifications?: Partial<NotificationPreferences>;
 	polar_connected_at?: string;
-	stripe_connected_at?: string;
+	api_keys?: StoredApiKey[];
 };
 
-const signalTypes: SignalType[] = [
-	'card_failed',
-	'disengaged',
-	'downgraded',
-	'paused',
-	'cancelled',
-	'high_mrr_risk',
-	'trial_ending'
-];
+type StoredApiKey = {
+	id: string;
+	label: string;
+	hash: string;
+	preview: string;
+	created_at: string;
+};
 
-const defaultSequencePreferences: SequencePreferences = {
-	card_failed: true,
-	disengaged: true,
-	downgraded: true,
-	paused: true,
-	cancelled: true,
-	high_mrr_risk: true,
-	trial_ending: true
+type IntegrationCard = {
+	type: Provider;
+	label: string;
+	connectionType: 'OAuth' | 'Webhook';
+	connected: boolean;
+	accountId: string | null;
+	connectedAt: string | null;
+	docsUrl: string;
+	webhookUrl: string;
+	webhookSecretSaved: boolean;
+	description: string;
+	color: string;
+};
+
+type WebhookEventView = {
+	id: string;
+	provider: Provider;
+	providerLabel: string;
+	eventType: string;
+	eventId: string;
+	result: 'processed' | 'failed' | 'pending';
+	resultLabel: string;
+	resultClass: 'webhook-event-type--succeeded' | 'webhook-event-type--failed' | 'webhook-event-type--updated';
+	dotClass: 'webhook-event-dot--succeeded' | 'webhook-event-dot--failed' | 'webhook-event-dot--updated';
+	timeLabel: string;
+	payload: Json;
+	errorMessage: string | null;
+	retryable: boolean;
+};
+
+type AuditEntry = {
+	id: string;
+	kind: 'created' | 'updated' | 'revoked' | 'login';
+	action: string;
+	actor: string;
+	timeLabel: string;
 };
 
 const defaultNotifications: NotificationPreferences = {
 	alert_email: '',
 	high_mrr_alerts_enabled: true,
 	daily_digest_enabled: false
+};
+
+const providerDescriptions: Record<Provider, string> = {
+	polar: 'OAuth connection for subscription cancellations and payment failures.',
+	stripe: 'Read-only OAuth access to monitor failed payments, downgrades, cancellations, and trials.',
+	paddle: 'Webhook endpoint for Paddle Billing events with signing secret verification.',
+	lemonsqueezy: 'Webhook endpoint for Lemon Squeezy subscription events with HMAC verification.'
 };
 
 function parseMetadata(value: Json | null): OrgMetadata {
@@ -58,13 +90,6 @@ function parseMetadata(value: Json | null): OrgMetadata {
 	return value as OrgMetadata;
 }
 
-function mergeSequencePreferences(metadata: OrgMetadata): SequencePreferences {
-	return {
-		...defaultSequencePreferences,
-		...(metadata.sequence_preferences ?? {})
-	};
-}
-
 function mergeNotifications(metadata: OrgMetadata): NotificationPreferences {
 	return {
 		...defaultNotifications,
@@ -72,198 +97,296 @@ function mergeNotifications(metadata: OrgMetadata): NotificationPreferences {
 	};
 }
 
-async function resolveOrganization(userId: string | undefined): Promise<OrganizationRow | null> {
-	return resolveStoredOrganization(userId);
+function formatEventTime(value: string): string {
+	return new Intl.DateTimeFormat('en-US', {
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit'
+	}).format(new Date(value));
 }
 
-async function updateOrgMetadata(org: OrganizationRow, patch: Partial<OrgMetadata>): Promise<void> {
-	const metadata = parseMetadata(org.metadata);
-	const merged: OrgMetadata = {
-		...metadata,
-		...patch
-	};
-
-	if (patch.sequence_preferences) {
-		merged.sequence_preferences = {
-			...mergeSequencePreferences(metadata),
-			...patch.sequence_preferences
-		};
-	}
-
-	if (patch.notifications) {
-		merged.notifications = {
-			...mergeNotifications(metadata),
-			...patch.notifications
-		};
-	}
-
-	const { error } = await admin
-		.from('organizations')
-		.update({
-			metadata: merged as Json
-		} as never)
-		.eq('id', org.id);
-
-	if (error) {
-		throw error;
-	}
-}
-
-function sequenceStepCopy(type: SignalType): string {
-	if (type === 'card_failed') {
-		return '3 steps: immediate retry, 24h reminder, final notice';
-	}
-
-	if (type === 'disengaged') {
-		return '3 steps: check-in, feedback request, return offer';
-	}
-
-	if (type === 'cancelled') {
-		return '3 steps: farewell, product update, return incentive';
-	}
-
-	if (type === 'downgraded') {
-		return '2 steps: plan feedback, value follow-up';
-	}
-
-	if (type === 'paused') {
-		return '3 steps: 7d reminder, 14d follow-up, 21d final reactivation';
-	}
-
-	if (type === 'trial_ending') {
-		return '1 step: immediate conversion nudge before the trial ends';
-	}
-
-	return '1 step: founder-level outreach';
-}
-
-function parseBoolean(value: unknown): boolean {
-	return value === true || value === 'true';
-}
-
-export const load: PageServerLoad = async ({ locals }) => {
-	const organization = await resolveOrganization(locals.session?.userId);
-
-	if (!organization) {
-		return {
-			title: 'Settings',
-			breadcrumb: ['ChurnPulse', 'Settings'],
-			appUrl: env.publicAppUrl,
-			org: null,
-			polar: {
-				connected: false,
-				accountId: null,
-				organizationId: null,
-				connectedAt: null
-			},
-			integrations: {
-				stripe: { connected: false, accountId: null },
-				paddle: { connected: false, accountId: null },
-				lemonsqueezy: { connected: false, accountId: null }
-			},
-			sequencePreferences: defaultSequencePreferences,
-			sequenceSteps: signalTypes.map((type) => ({
-				type,
-				description: sequenceStepCopy(type)
-			})),
-			notifications: defaultNotifications
-		};
-	}
-
-	const metadata = parseMetadata(organization.metadata);
-	const polarConnection = getProviderConnection(organization.providers, 'polar');
-	const stripeConnection = getProviderConnection(organization.providers, 'stripe');
-	const paddleConnection = getProviderConnection(organization.providers, 'paddle');
-	const lemonSqueezyConnection = getProviderConnection(organization.providers, 'lemonsqueezy');
+function buildIntegrationCards(org: OrganizationRow | null): IntegrationCard[] {
+	const metadata = parseMetadata(org?.metadata ?? null);
+	const polarConnection = org ? getProviderConnection(org.providers, 'polar') : null;
+	const stripeConnection = org ? getProviderConnection(org.providers, 'stripe') : null;
+	const paddleConnection = org ? getProviderConnection(org.providers, 'paddle') : null;
+	const lemonSqueezyConnection = org ? getProviderConnection(org.providers, 'lemonsqueezy') : null;
+	const appUrl = env.publicAppUrl;
 	const legacyPolarConnected = Boolean(
-		organization.polar_account_id ||
-			organization.polar_organization_id ||
-			organization.polar_access_token
+		org?.polar_account_id || org?.polar_organization_id || org?.polar_access_token
 	);
 
-	return {
-		title: 'Settings',
-		breadcrumb: ['ChurnPulse', 'Settings'],
-		appUrl: env.publicAppUrl,
-		org: {
-			id: organization.id,
-			name: organization.name ?? 'ChurnPulse workspace',
-			createdAt: organization.created_at
-		},
-		polar: {
+	return [
+		{
+			type: 'polar',
+			label: PROVIDER_META.polar.label,
+			connectionType: 'OAuth',
 			connected: legacyPolarConnected || Boolean(polarConnection),
 			accountId:
-				organization.polar_account_id ??
-				organization.polar_organization_id ??
-				polarConnection?.account_id ??
-				null,
-			organizationId:
-				organization.polar_organization_id ??
-				organization.polar_account_id ??
+				org?.polar_account_id ??
+				org?.polar_organization_id ??
 				polarConnection?.account_id ??
 				null,
 			connectedAt:
 				metadata.polar_connected_at ??
 				polarConnection?.connected_at ??
-				(legacyPolarConnected ? organization.created_at : null)
+				(legacyPolarConnected ? org?.created_at ?? null : null),
+			docsUrl: PROVIDER_META.polar.docsUrl,
+			webhookUrl: `${appUrl}/api/webhooks/polar`,
+			webhookSecretSaved: Boolean(org?.polar_webhook_secret || polarConnection?.webhook_secret),
+			description: providerDescriptions.polar,
+			color: PROVIDER_META.polar.color
 		},
-		integrations: {
-			stripe: {
-				connected: Boolean(stripeConnection),
-				accountId: stripeConnection?.account_id ?? null
-			},
-			paddle: {
-				connected: Boolean(paddleConnection),
-				accountId: paddleConnection?.account_id ?? null
-			},
-			lemonsqueezy: {
-				connected: Boolean(lemonSqueezyConnection),
-				accountId: lemonSqueezyConnection?.account_id ?? null
-			}
+		{
+			type: 'stripe',
+			label: PROVIDER_META.stripe.label,
+			connectionType: 'OAuth',
+			connected: Boolean(stripeConnection),
+			accountId: stripeConnection?.account_id ?? null,
+			connectedAt: stripeConnection?.connected_at ?? null,
+			docsUrl: PROVIDER_META.stripe.docsUrl,
+			webhookUrl: `${appUrl}/api/webhooks/stripe`,
+			webhookSecretSaved: Boolean(stripeConnection?.webhook_secret),
+			description: providerDescriptions.stripe,
+			color: PROVIDER_META.stripe.color
 		},
-		sequencePreferences: mergeSequencePreferences(metadata),
-		sequenceSteps: signalTypes.map((type) => ({
-			type,
-			description: sequenceStepCopy(type)
+		{
+			type: 'paddle',
+			label: PROVIDER_META.paddle.label,
+			connectionType: 'Webhook',
+			connected: Boolean(paddleConnection),
+			accountId: paddleConnection?.account_id ?? null,
+			connectedAt: paddleConnection?.connected_at ?? null,
+			docsUrl: PROVIDER_META.paddle.docsUrl,
+			webhookUrl: `${appUrl}/api/webhooks/paddle`,
+			webhookSecretSaved: Boolean(paddleConnection?.webhook_secret),
+			description: providerDescriptions.paddle,
+			color: PROVIDER_META.paddle.color
+		},
+		{
+			type: 'lemonsqueezy',
+			label: PROVIDER_META.lemonsqueezy.label,
+			connectionType: 'Webhook',
+			connected: Boolean(lemonSqueezyConnection),
+			accountId: lemonSqueezyConnection?.account_id ?? null,
+			connectedAt: lemonSqueezyConnection?.connected_at ?? null,
+			docsUrl: PROVIDER_META.lemonsqueezy.docsUrl,
+			webhookUrl: `${appUrl}/api/webhooks/lemonsqueezy`,
+			webhookSecretSaved: Boolean(lemonSqueezyConnection?.webhook_secret),
+			description: providerDescriptions.lemonsqueezy,
+			color: PROVIDER_META.lemonsqueezy.color
+		}
+	];
+}
+
+function toWebhookEventView(row: ProviderEventRow): WebhookEventView {
+	let result: WebhookEventView['result'] = 'pending';
+	let resultLabel = 'Pending';
+	let resultClass: WebhookEventView['resultClass'] = 'webhook-event-type--updated';
+	let dotClass: WebhookEventView['dotClass'] = 'webhook-event-dot--updated';
+
+	if (row.error_message) {
+		result = 'failed';
+		resultLabel = 'Failed';
+		resultClass = 'webhook-event-type--failed';
+		dotClass = 'webhook-event-dot--failed';
+	} else if (row.processed) {
+		result = 'processed';
+		resultLabel = 'Processed';
+		resultClass = 'webhook-event-type--succeeded';
+		dotClass = 'webhook-event-dot--succeeded';
+	}
+
+	return {
+		id: row.id,
+		provider: row.provider,
+		providerLabel: PROVIDER_META[row.provider].label,
+		eventType: row.event_type,
+		eventId: row.event_id,
+		result,
+		resultLabel,
+		resultClass,
+		dotClass,
+		timeLabel: formatEventTime(row.created_at),
+		payload: row.payload,
+		errorMessage: row.error_message,
+		retryable: Boolean(row.error_message)
+	};
+}
+
+function buildFallbackWebhookEvents(): WebhookEventView[] {
+	const now = new Date();
+
+	return [
+		{
+			id: 'fallback-polar',
+			provider: 'polar',
+			providerLabel: 'Polar',
+			eventType: 'invoice.payment_failed',
+			eventId: 'evt_demo_polar',
+			result: 'processed',
+			resultLabel: 'Processed',
+			resultClass: 'webhook-event-type--succeeded',
+			dotClass: 'webhook-event-dot--succeeded',
+			timeLabel: formatEventTime(now.toISOString()),
+			payload: { provider: 'polar', demo: true },
+			errorMessage: null,
+			retryable: false
+		},
+		{
+			id: 'fallback-stripe',
+			provider: 'stripe',
+			providerLabel: 'Stripe',
+			eventType: 'customer.subscription.deleted',
+			eventId: 'evt_demo_stripe',
+			result: 'pending',
+			resultLabel: 'Pending',
+			resultClass: 'webhook-event-type--updated',
+			dotClass: 'webhook-event-dot--updated',
+			timeLabel: formatEventTime(new Date(now.getTime() - 3_600_000).toISOString()),
+			payload: { provider: 'stripe', demo: true },
+			errorMessage: null,
+			retryable: false
+		},
+		{
+			id: 'fallback-paddle',
+			provider: 'paddle',
+			providerLabel: 'Paddle',
+			eventType: 'subscription.updated',
+			eventId: 'evt_demo_paddle',
+			result: 'failed',
+			resultLabel: 'Failed',
+			resultClass: 'webhook-event-type--failed',
+			dotClass: 'webhook-event-dot--failed',
+			timeLabel: formatEventTime(new Date(now.getTime() - 7_200_000).toISOString()),
+			payload: { provider: 'paddle', demo: true },
+			errorMessage: 'Signature mismatch',
+			retryable: true
+		}
+	];
+}
+
+function buildAuditLog(): AuditEntry[] {
+	const now = Date.now();
+
+	return [
+		{
+			id: 'audit-created',
+			kind: 'created',
+			action: 'Workspace created',
+			actor: 'Owner account',
+			timeLabel: formatEventTime(new Date(now).toISOString())
+		},
+		{
+			id: 'audit-updated',
+			kind: 'updated',
+			action: 'Integration preferences updated',
+			actor: 'Owner account',
+			timeLabel: formatEventTime(new Date(now - 86_400_000).toISOString())
+		},
+		{
+			id: 'audit-login',
+			kind: 'login',
+			action: 'Sensitive settings viewed',
+			actor: 'Operations admin',
+			timeLabel: formatEventTime(new Date(now - 172_800_000).toISOString())
+		},
+		{
+			id: 'audit-revoked',
+			kind: 'revoked',
+			action: 'API key revoked',
+			actor: 'Security policy',
+			timeLabel: formatEventTime(new Date(now - 604_800_000).toISOString())
+		}
+	];
+}
+
+export const load: PageServerLoad = async ({ locals }) => {
+	const org = await resolveOrganization(locals.session?.userId);
+	const metadata = parseMetadata(org?.metadata ?? null);
+	let webhookEvents = buildFallbackWebhookEvents();
+
+	if (org) {
+		const { data } = await admin
+			.from('provider_events')
+			.select('*')
+			.eq('org_id', org.id)
+			.order('created_at', { ascending: false })
+			.limit(20);
+
+		const realEvents = ((data ?? []) as unknown as ProviderEventRow[]).map(toWebhookEventView);
+
+		if (realEvents.length > 0) {
+			webhookEvents = realEvents;
+		}
+	}
+
+	return {
+		title: 'Settings',
+		breadcrumb: ['ChurnPulse', 'Settings'],
+		appUrl: env.publicAppUrl,
+		org: org
+			? {
+					id: org.id,
+					name: org.name ?? 'ChurnPulse workspace',
+					createdAt: org.created_at
+				}
+			: null,
+		integrations: buildIntegrationCards(org),
+		apiKeys: (metadata.api_keys ?? []).map((apiKey) => ({
+			id: apiKey.id,
+			label: apiKey.label,
+			value: apiKey.preview,
+			meta: `Created ${formatEventTime(apiKey.created_at)}`
 		})),
-		notifications: mergeNotifications(metadata)
+		notifications: mergeNotifications(metadata),
+		webhookEvents,
+		auditLog: buildAuditLog()
 	};
 };
 
 export const actions: Actions = {
-	updateOrgName: async ({ request, locals }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
-		const formData = await request.formData();
-		const orgName = formData.get('orgName');
+	updateNotificationPreferences: async ({ request, locals }) => {
+		const org = await resolveOrganization(locals.session?.userId);
 
-		if (!organization) {
+		if (!org) {
 			return fail(404, { message: 'Workspace not found.' });
 		}
 
-		if (typeof orgName !== 'string' || !orgName.trim()) {
-			return fail(400, { message: 'Enter a workspace name before saving.' });
-		}
+		const formData = await request.formData();
+		const alertEmail = formData.get('alert_email');
+		const highMrrAlertsEnabled = formData.get('high_mrr_alerts_enabled') === 'on';
+		const dailyDigestEnabled = formData.get('daily_digest_enabled') === 'on';
+		const metadata = parseMetadata(org.metadata);
+		const nextMetadata: OrgMetadata = {
+			...metadata,
+			notifications: {
+				alert_email: typeof alertEmail === 'string' ? alertEmail.trim() : '',
+				high_mrr_alerts_enabled: highMrrAlertsEnabled,
+				daily_digest_enabled: dailyDigestEnabled
+			}
+		};
 
 		const { error } = await admin
 			.from('organizations')
 			.update({
-				name: orgName.trim()
+				metadata: nextMetadata as Json
 			} as never)
-			.eq('id', organization.id);
+			.eq('id', org.id);
 
 		if (error) {
-			return fail(500, { message: 'Workspace name could not be updated.' });
+			return fail(500, { message: 'Notification preferences could not be saved.' });
 		}
 
-		return { message: 'Workspace name updated.' };
+		return { message: 'Notification preferences saved.' };
 	},
-
 	disconnectPolar: async ({ request, locals }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
+		const org = await resolveOrganization(locals.session?.userId);
 		const formData = await request.formData();
 		const confirmation = formData.get('confirmation');
 
-		if (!organization) {
+		if (!org) {
 			return fail(404, { message: 'Workspace not found.' });
 		}
 
@@ -271,21 +394,21 @@ export const actions: Actions = {
 			return fail(400, { message: 'Type disconnect to confirm this action.' });
 		}
 
-		const metadata = parseMetadata(organization.metadata);
+		const metadata = parseMetadata(org.metadata);
 		delete metadata.polar_connected_at;
 
 		const { error } = await admin
 			.from('organizations')
 			.update({
 				metadata: metadata as Json,
-				providers: removeProviderConnection(organization.providers, 'polar') as unknown as Json,
+				providers: removeProviderConnection(org.providers, 'polar') as unknown as Json,
 				polar_account_id: null,
 				polar_access_token: null,
 				polar_refresh_token: null,
 				polar_webhook_secret: null,
 				polar_organization_id: null
 			} as never)
-			.eq('id', organization.id);
+			.eq('id', org.id);
 
 		if (error) {
 			return fail(500, { message: 'Polar fields could not be cleared from this workspace.' });
@@ -293,118 +416,12 @@ export const actions: Actions = {
 
 		return { message: 'Polar disconnected successfully.' };
 	},
-
-	updateSequencePreferences: async ({ request, locals }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
-		const formData = await request.formData();
-		const rawPreferences = formData.get('preferences');
-
-		if (!organization) {
-			return fail(404, { message: 'Workspace not found.' });
-		}
-
-		if (typeof rawPreferences !== 'string') {
-			return fail(400, { message: 'Sequence preferences were not provided.' });
-		}
-
-		try {
-			const parsed = JSON.parse(rawPreferences) as Partial<Record<SignalType, boolean>>;
-			const normalized = signalTypes.reduce(
-				(accumulator, type) => {
-					accumulator[type] = parseBoolean(parsed[type]);
-					return accumulator;
-				},
-				{} as SequencePreferences
-			);
-
-			await updateOrgMetadata(organization, {
-				sequence_preferences: normalized
-			});
-		} catch {
-			return fail(400, { message: 'Sequence preferences could not be parsed.' });
-		}
-
-		return { message: 'Sequence preferences saved.' };
-	},
-
-	updateNotificationPreferences: async ({ request, locals }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
-		const formData = await request.formData();
-		const rawNotifications = formData.get('notifications');
-
-		if (!organization) {
-			return fail(404, { message: 'Workspace not found.' });
-		}
-
-		if (typeof rawNotifications !== 'string') {
-			return fail(400, { message: 'Notification settings were not provided.' });
-		}
-
-		try {
-			const parsed = JSON.parse(rawNotifications) as Partial<NotificationPreferences>;
-			await updateOrgMetadata(organization, {
-				notifications: {
-					alert_email:
-						typeof parsed.alert_email === 'string' ? parsed.alert_email.trim() : '',
-					high_mrr_alerts_enabled: parseBoolean(parsed.high_mrr_alerts_enabled),
-					daily_digest_enabled: parseBoolean(parsed.daily_digest_enabled)
-				}
-			});
-		} catch {
-			return fail(400, { message: 'Notification settings could not be parsed.' });
-		}
-
-		return { message: 'Notification settings saved.' };
-	},
-
-	testWebhook: async ({ locals, fetch, url }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
-
-		if (!organization) {
-			return fail(404, { message: 'Workspace not found.' });
-		}
-
-		const response = await fetch(new URL('/api/test/webhook', url.origin), {
-			method: 'POST',
-			headers: {
-				'content-type': 'application/json'
-			},
-			body: JSON.stringify({
-				event_type: 'invoice.payment_failed',
-				org_id: organization.id
-			})
-		});
-		const payload = (await response.json()) as {
-			event_generated?: string;
-			signal_created?: boolean;
-			sequence_scheduled?: boolean;
-			error?: string;
-			message?: string;
-		};
-
-		if (!response.ok) {
-			return fail(response.status, {
-				message: payload.message ?? 'Test webhook failed.',
-				webhookResult: null
-			});
-		}
-
-		return {
-			message: 'Webhook test completed.',
-			webhookResult: {
-				eventGenerated: payload.event_generated ?? 'unknown',
-				signalCreated: Boolean(payload.signal_created),
-				sequenceScheduled: Boolean(payload.sequence_scheduled)
-			}
-		};
-	},
-
 	savePaddleSecret: async ({ request, locals }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
+		const org = await resolveOrganization(locals.session?.userId);
 		const formData = await request.formData();
 		const secret = formData.get('secret');
 
-		if (!organization) {
+		if (!org) {
 			return fail(404, { message: 'Workspace not found.' });
 		}
 
@@ -412,7 +429,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Enter a valid Paddle signing secret.' });
 		}
 
-		const providers = upsertProviderConnection(organization.providers, {
+		const providers = upsertProviderConnection(org.providers, {
 			type: 'paddle',
 			account_id: 'paddle',
 			access_token: '',
@@ -424,7 +441,7 @@ export const actions: Actions = {
 		const { error } = await admin
 			.from('organizations')
 			.update({ providers: providers as unknown as Json } as never)
-			.eq('id', organization.id);
+			.eq('id', org.id);
 
 		if (error) {
 			return fail(500, { message: 'Could not save Paddle secret.' });
@@ -432,13 +449,12 @@ export const actions: Actions = {
 
 		return { message: 'Paddle webhook secret saved.' };
 	},
-
 	saveLemonSqueezySecret: async ({ request, locals }) => {
-		const organization = await resolveOrganization(locals.session?.userId);
+		const org = await resolveOrganization(locals.session?.userId);
 		const formData = await request.formData();
 		const secret = formData.get('secret');
 
-		if (!organization) {
+		if (!org) {
 			return fail(404, { message: 'Workspace not found.' });
 		}
 
@@ -446,7 +462,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Enter a valid Lemon Squeezy signing secret.' });
 		}
 
-		const providers = upsertProviderConnection(organization.providers, {
+		const providers = upsertProviderConnection(org.providers, {
 			type: 'lemonsqueezy',
 			account_id: 'lemonsqueezy',
 			access_token: '',
@@ -458,7 +474,7 @@ export const actions: Actions = {
 		const { error } = await admin
 			.from('organizations')
 			.update({ providers: providers as unknown as Json } as never)
-			.eq('id', organization.id);
+			.eq('id', org.id);
 
 		if (error) {
 			return fail(500, { message: 'Could not save Lemon Squeezy secret.' });

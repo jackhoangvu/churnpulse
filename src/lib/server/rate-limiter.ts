@@ -1,22 +1,32 @@
-const store = new Map<string, { count: number; resetAt: number }>();
+import { admin } from "$lib/server/admin";
 
-export function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
-	const now = Date.now();
-	const current = store.get(key);
+export async function checkRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<boolean> {
+  const windowStart = new Date(Date.now() - windowMs).toISOString();
+  const { count, error: countError } = await admin
+    .from("rate_limit_events")
+    .select("*", { count: "exact", head: true })
+    .eq("key", key)
+    .gte("created_at", windowStart);
 
-	if (!current || current.resetAt <= now) {
-		store.set(key, {
-			count: 1,
-			resetAt: now + windowMs
-		});
-		return true;
-	}
+  if (countError) {
+    return true;
+  }
 
-	if (current.count >= limit) {
-		return false;
-	}
+  if ((count ?? 0) >= limit) {
+    return false;
+  }
 
-	current.count += 1;
-	store.set(key, current);
-	return true;
+  const insertResult = await admin
+    .from("rate_limit_events")
+    .insert({ key } as never);
+
+  if (insertResult.error) {
+    return true;
+  }
+
+  return true;
 }

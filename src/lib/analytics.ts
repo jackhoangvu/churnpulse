@@ -1,4 +1,9 @@
 let sessionId: string | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingEvents: Array<{
+	name: string;
+	properties: Record<string, string | number | boolean>;
+}> = [];
 
 function getSessionId(): string {
 	if (!sessionId) {
@@ -16,14 +21,27 @@ export function trackEvent(
 		return;
 	}
 
-	const payload = JSON.stringify({
-		event: name,
-		properties: properties ?? {},
-		session_id: getSessionId()
+	pendingEvents.push({
+		name,
+		properties: properties ?? {}
 	});
 
-	navigator.sendBeacon(
-		'/api/analytics',
-		new Blob([payload], { type: 'application/json' })
-	);
+	if (flushTimer) {
+		clearTimeout(flushTimer);
+	}
+
+	flushTimer = setTimeout(() => {
+		const batch = pendingEvents.splice(0);
+
+		if (batch.length === 0) {
+			return;
+		}
+
+		const payload = JSON.stringify({
+			events: batch,
+			session_id: getSessionId()
+		});
+
+		navigator.sendBeacon('/api/analytics', new Blob([payload], { type: 'application/json' }));
+	}, 100);
 }

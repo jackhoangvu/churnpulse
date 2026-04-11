@@ -1,678 +1,790 @@
 <script lang="ts">
-	type NavLink = {
-		href: string;
-		label: string;
-	};
+  import { onMount } from "svelte";
 
-	type SocialProofItem = {
-		label: string;
-	};
+  type Dispose = () => void;
 
-	type PreviewRow = {
-		customer: string;
-		signal: string;
-		signalClass: string;
-		mrr: string;
-		badgeLabel: string;
-		badgeClass: string;
-		statusClass?: string;
-	};
+  type ThreeAttribute = {
+    needsUpdate?: boolean;
+  };
 
-	type SignalCard = {
-		title: string;
-		description: string;
-		cardClass: string;
-		badgeLabel?: string;
-		badgeClass?: string;
-		revealDelay: string;
-	};
+  type ThreeGeometry = {
+    attributes: {
+      position: ThreeAttribute;
+    };
+    setAttribute(name: string, attribute: ThreeAttribute): void;
+    dispose(): void;
+  };
 
-	type StepItem = {
-		number: string;
-		title: string;
-		description: string;
-		icon: 'plug' | 'bell' | 'mail';
-	};
+  type ThreeMaterial = {
+    opacity?: number;
+    dispose(): void;
+    clone(): ThreeMaterial;
+  };
 
-	type PricingPlan = {
-		name: string;
-		price: string;
-		audience: string;
-		description: string;
-		features: string[];
-		ctaLabel: string;
-		ctaHref: string;
-		featured?: boolean;
-		badgeLabel?: string;
-	};
+  type ThreeObject3D = {
+    rotation: {
+      x: number;
+      y: number;
+      z: number;
+    };
+    position: {
+      x: number;
+      y: number;
+      z: number;
+      set(x: number, y: number, z: number): void;
+    };
+    scale: {
+      setScalar(value: number): void;
+    };
+  };
 
-	const navLinks: NavLink[] = [
-		{ href: '#signals', label: 'Signals' },
-		{ href: '#pricing', label: 'Pricing' },
-		{ href: '/demo', label: 'Demo' },
-		{ href: '/docs', label: 'Docs' }
-	];
+  type ThreeScene = {
+    add(object: unknown): void;
+  };
 
-	const socialProofItems: SocialProofItem[] = [
-		{ label: 'Works with Stripe, Paddle, LS & Polar' },
-		{ label: '60-second setup' },
-		{ label: 'Read-only access only' }
-	];
+  type ThreeRenderer = {
+    domElement: HTMLCanvasElement;
+    setPixelRatio(value: number): void;
+    setSize(width: number, height: number, updateStyle?: boolean): void;
+    render(scene: ThreeScene, camera: ThreeCamera): void;
+    dispose(): void;
+  };
 
-	const previewRows: PreviewRow[] = [
-		{
-			customer: 'Acme Corp',
-			signal: 'Card Failed',
-			signalClass: 'badge-signal-card-failed',
-			mrr: '$890/mo',
-			badgeLabel: 'Urgent',
-			badgeClass: 'badge-danger',
-			statusClass: 'status-dot--detected'
-		},
-		{
-			customer: 'Loom AI',
-			signal: 'Disengaged',
-			signalClass: 'badge-signal-disengaged',
-			mrr: '$2,100/mo',
-			badgeLabel: 'Seq. 2/3',
-			badgeClass: 'badge-brand'
-		},
-		{
-			customer: 'Pylon HQ',
-			signal: 'Downgraded',
-			signalClass: 'badge-signal-downgraded',
-			mrr: '$340/mo',
-			badgeLabel: 'Detected',
-			badgeClass: 'badge-muted'
-		},
-		{
-			customer: 'Cycle App',
-			signal: 'High MRR',
-			signalClass: 'badge-signal-high-mrr',
-			mrr: '$4,400/mo',
-			badgeLabel: 'CRITICAL',
-			badgeClass: 'badge-critical'
-		},
-		{
-			customer: 'Raycast',
-			signal: 'Cancelled',
-			signalClass: 'badge-signal-cancelled',
-			mrr: '$1,200/mo',
-			badgeLabel: 'Recovered',
-			badgeClass: 'badge-success'
-		}
-	];
+  type ThreeCamera = {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    position: {
+      x: number;
+      y: number;
+      z: number;
+    };
+    updateProjectionMatrix(): void;
+  };
 
-	const signalCards: SignalCard[] = [
-		{
-			title: 'Card Failed',
-			description:
-				"Invoice payment failed and the customer probably did not mean to leave. Recover the easy wins before finance becomes churn.",
-			cardClass: 'signal-card--card-failed',
-			revealDelay: 'reveal-delay-1'
-		},
-		{
-			title: 'Disengaged',
-			description:
-				'No meaningful product usage in 14+ days. Silent churn is already forming and your reactivation window is narrowing.',
-			cardClass: 'signal-card--disengaged',
-			revealDelay: 'reveal-delay-2'
-		},
-		{
-			title: 'Plan Downgraded',
-			description:
-				'Subscription value dropped. The account is shrinking, budgets are tightening, and value needs to be re-established fast.',
-			cardClass: 'signal-card--downgraded',
-			revealDelay: 'reveal-delay-3'
-		},
-		{
-			title: 'Subscription Paused',
-			description:
-				'Paused is not harmless. ChurnPulse starts the follow-up window before a pause quietly turns permanent.',
-			cardClass: 'signal-card--paused',
-			revealDelay: 'reveal-delay-4'
-		},
-		{
-			title: 'Subscription Cancelled',
-			description:
-				'Cancellation starts a 30-day win-back race. The first touch goes out immediately while the context is still fresh.',
-			cardClass: 'signal-card--cancelled',
-			revealDelay: 'reveal-delay-2'
-		},
-		{
-			title: 'High MRR at Risk',
-			description:
-				'Any risk event on a $500+/mo customer gets escalated instantly so the most expensive losses never hide in the queue.',
-			cardClass: 'signal-card--high-mrr',
-			badgeLabel: 'Critical',
-			badgeClass: 'badge-critical',
-			revealDelay: 'reveal-delay-3'
-		}
-	];
+  type ThreeRuntime = {
+    Scene: new () => ThreeScene;
+    WebGLRenderer: new (options: {
+      antialias: boolean;
+      alpha: boolean;
+      powerPreference: string;
+    }) => ThreeRenderer;
+    OrthographicCamera: new (
+      left: number,
+      right: number,
+      top: number,
+      bottom: number,
+      near: number,
+      far: number,
+    ) => ThreeCamera;
+    BufferGeometry: new () => ThreeGeometry;
+    BufferAttribute: new (
+      array: Float32Array,
+      itemSize: number,
+    ) => ThreeAttribute;
+    PointsMaterial: new (options: {
+      size: number;
+      transparent: boolean;
+      opacity: number;
+      vertexColors: boolean;
+    }) => ThreeMaterial;
+    Points: new (geometry: ThreeGeometry, material: ThreeMaterial) => ThreeObject3D;
+    MeshBasicMaterial: new (options: {
+      color: number;
+      wireframe: boolean;
+      transparent: boolean;
+      opacity: number;
+    }) => ThreeMaterial;
+    Mesh: new (
+      geometry: ThreeGeometry,
+      material: ThreeMaterial,
+    ) => ThreeObject3D & { material: ThreeMaterial };
+    IcosahedronGeometry: new (radius: number, detail: number) => ThreeGeometry;
+  };
 
-	const stepItems: StepItem[] = [
-		{
-			number: '01',
-			title: 'Connect your billing stack',
-			description:
-				'OAuth or webhook setup takes under a minute. Connect Stripe, Paddle, Lemon Squeezy, or Polar and ChurnPulse starts monitoring immediately.',
-			icon: 'plug'
-		},
-		{
-			number: '02',
-			title: 'Detect Signals',
-			description:
-				'Webhook events are watched continuously. Every signal is classified, timestamped, and surfaced while the account is still recoverable.',
-			icon: 'bell'
-		},
-		{
-			number: '03',
-			title: 'Stop Churn',
-			description:
-				'Signal-aware sequences send automatically with AI-personalized copy tuned to customer value, urgency, and churn reason.',
-			icon: 'mail'
-		}
-	];
+  const navItems = [
+    { href: "#platforms", label: "Platforms" },
+    { href: "#signals", label: "Signals" },
+    { href: "#how-it-works", label: "How it works" },
+    { href: "#pricing", label: "Pricing" },
+    { href: "/docs", label: "Docs" },
+  ];
 
-	const pricingPlans: PricingPlan[] = [
-		{
-			name: 'Starter',
-			price: '$29',
-			audience: 'Early-stage SaaS under $10K MRR',
-			description:
-				'Catch the obvious churn before it costs you. Core detection, clean workflows, and nothing unnecessary.',
-			features: [
-				'3 signal types (card failed, cancelled, paused)',
-				'Basic email sequences (3-step)',
-				'One billing platform connection',
-				'Dashboard with 30-day history',
-				'Up to 500 monitored customers',
-				'Email support'
-			],
-			ctaLabel: 'Get started',
-			ctaHref: '/sign-up'
-		},
-		{
-			name: 'Growth',
-			price: '$49',
-			audience: 'The plan most founders live on',
-			description:
-				'All 6 signals, AI win-back copy, and a recovery loop that pays for itself as soon as the first account comes back.',
-			features: [
-				'All 7 signal types',
-				'AI-powered email personalization',
-				'Real-time dashboard + live signals',
-				'Full 3-step sequence engine',
-				'Unlimited monitored customers',
-				'High MRR priority alerts',
-				'Sequence analytics',
-				'Priority email support'
-			],
-			ctaLabel: 'Start free trial',
-			ctaHref: '/sign-up',
-			featured: true,
-			badgeLabel: 'Most popular'
-		},
-		{
-			name: 'Scale',
-			price: '$99',
-			audience: 'High-MRR teams where one save pays for months',
-			description:
-				'When one recovered account covers the cost of the tool for the rest of the year, the decision becomes operational, not philosophical.',
-			features: [
-				'Everything in Growth',
-				'Custom email sending domain',
-				'Webhook delivery to your own endpoint',
-				'Advanced sequence branching',
-				'Internal Slack/email alerts',
-				'CSV export of all signals',
-				'Quarterly strategy call',
-				'Dedicated support channel'
-			],
-			ctaLabel: 'Talk to us',
-			ctaHref: '/docs'
-		}
-	];
+  const heroWords = [
+    "Stop",
+    "losing",
+    "revenue",
+    "you",
+    "should",
+    "have",
+    "kept.",
+  ];
 
-	let isScrolled = $state(false);
+  const proofChips = [
+    { label: "Works with 4 billing platforms", tone: "success" },
+    { label: "Read-only OAuth access", tone: "brand" },
+    { label: "AI win-back in seconds", tone: "violet" },
+  ];
 
-	function updateScrollState(): void {
-		isScrolled = window.scrollY > 20;
-	}
+  const rotatingSignals = [
+    {
+      customer: "Acme Corp",
+      signal: "Card expired · recovery sequence launched",
+      amount: "$890 MRR at risk",
+      tone: "danger",
+    },
+    {
+      customer: "Loom AI",
+      signal: "Disengaged for 18 days · AI follow-up queued",
+      amount: "$2,100 MRR protected",
+      tone: "warning",
+    },
+    {
+      customer: "Cycle App",
+      signal: "High-value cancellation intent · manual escalation",
+      amount: "$4,400 expansion saved",
+      tone: "brand",
+    },
+    {
+      customer: "Pylon HQ",
+      signal: "Downgrade detected · personalized rescue sent",
+      amount: "$340 MRR shrinking",
+      tone: "info",
+    },
+    {
+      customer: "Linear App",
+      signal: "Trial ending in 48h · activation playbook queued",
+      amount: "$590 pipeline warming",
+      tone: "success",
+    },
+    {
+      customer: "Raycast",
+      signal: "Pause risk resolved · account retained",
+      amount: "$1,200 recovered",
+      tone: "success",
+    },
+  ];
 
-	function revealAll(elements: NodeListOf<HTMLElement>): void {
-		elements.forEach((element) => {
-			element.classList.add('revealed');
-		});
-	}
+  const integrationNodes = [
+    { label: "Stripe", position: "north" },
+    { label: "Paddle", position: "north-east" },
+    { label: "Lemon Squeezy", position: "south-east" },
+    { label: "Polar", position: "south" },
+    { label: "Your Dashboard", position: "south-west" },
+  ];
 
-	function buildStepIconPath(icon: StepItem['icon']): string[] {
-		if (icon === 'plug') {
-			return ['M8 4v6', 'M16 4v6', 'M7 10h10v3a5 5 0 0 1-5 5v2'];
-		}
+  const signalCards = [
+    {
+      title: "Card failed",
+      description: "Payment friction gets caught before it becomes accidental churn.",
+      scenario:
+        "Acme Corp — $890/mo — Card expired 2 days ago — Recovery sequence launched automatically.",
+    },
+    {
+      title: "Disengaged",
+      description: "Usage decay turns into a churn signal with context and urgency.",
+      scenario:
+        "Loom AI — $2,100/mo — No sessions in 18 days — Re-engagement email shipped instantly.",
+    },
+    {
+      title: "Downgraded",
+      description: "Revenue contraction becomes a save opportunity, not a lagging metric.",
+      scenario:
+        "Pylon HQ — $340/mo — Plan reduced 44% — Value reinforcement sequence triggered.",
+    },
+    {
+      title: "Cancelled",
+      description: "You get the win-back window while context is still fresh.",
+      scenario:
+        "Cycle App — $4,400/mo — Cancellation intent detected — Executive outreach queued.",
+    },
+  ];
 
-		if (icon === 'bell') {
-			return ['M12 20a2.5 2.5 0 0 0 2.3-1.5', 'M6 9a6 6 0 1 1 12 0c0 4 2 5 2 5H4s2-1 2-5'];
-		}
+  const steps = [
+    {
+      number: "01",
+      title: "Connect a billing platform",
+      copy: "OAuth or signed webhook setup takes about a minute. ChurnPulse starts ingesting context immediately.",
+    },
+    {
+      number: "02",
+      title: "Signals are classified in real time",
+      copy: "Every event becomes a structured churn signal with urgency, MRR impact, and a recommended save motion.",
+    },
+    {
+      number: "03",
+      title: "Launch the right recovery motion",
+      copy: "Sequences, playbooks, and manual escalation fire before the account becomes a postmortem.",
+    },
+  ];
 
-		return ['M4 7h16v10H4z', 'm4 10 4 3 8-6'];
-	}
+  const pricingPlans = [
+    {
+      name: "Starter",
+      monthly: 29,
+      blurb: "Core detection and recovery for early-stage teams.",
+      features: [
+        "Card failed, cancelled, paused, trial risk",
+        "1 billing integration",
+        "Recovery dashboard",
+        "Up to 500 monitored customers",
+      ],
+    },
+    {
+      name: "Growth",
+      monthly: 49,
+      blurb: "The full operating system for keeping revenue.",
+      badge: "Best value",
+      featured: true,
+      features: [
+        "All 7 signal types",
+        "AI-generated recovery copy",
+        "Unlimited monitored customers",
+        "Priority alerts + analytics",
+      ],
+    },
+    {
+      name: "Scale",
+      monthly: 99,
+      blurb: "High-MRR save workflows and premium support.",
+      features: [
+        "Custom domains and exports",
+        "Advanced sequence branching",
+        "Webhook handoff to internal tools",
+        "Dedicated support channel",
+      ],
+    },
+  ];
 
-	$effect(() => {
-		if (typeof window === 'undefined' || typeof document === 'undefined') {
-			return;
-		}
+  let healthStatus = $state<"ok" | "degraded" | "down">("degraded");
+  let navScrolled = $state(false);
+  let signalFeed = $state(rotatingSignals.slice(0, 5));
+  let heroCard = $state<HTMLElement | null>(null);
+  let heroCanvas = $state<HTMLDivElement | null>(null);
 
-		updateScrollState();
+  onMount(() => {
+    const remove: Dispose[] = [];
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-		const cleanupCallbacks: Array<() => void> = [];
-		const revealElements = document.querySelectorAll<HTMLElement>('.reveal');
-		const anchorLinks = document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]');
-		const tiltCards = document.querySelectorAll<HTMLElement>('.tilt-card');
-		const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const updateScroll = () => {
+      navScrolled = window.scrollY > 100;
+    };
 
-		const handleScroll = (): void => {
-			updateScrollState();
-		};
+    updateScroll();
+    window.addEventListener("scroll", updateScroll, { passive: true });
+    remove.push(() => window.removeEventListener("scroll", updateScroll));
 
-		window.addEventListener('scroll', handleScroll, { passive: true });
-		cleanupCallbacks.push(() => {
-			window.removeEventListener('scroll', handleScroll);
-		});
+    const interval = window.setInterval(() => {
+      signalFeed = [
+        rotatingSignals[Math.floor(Math.random() * rotatingSignals.length)],
+        ...signalFeed,
+      ].slice(0, 5);
+    }, 3000);
+    remove.push(() => window.clearInterval(interval));
 
-		if (prefersReducedMotion) {
-			revealAll(revealElements);
-		} else {
-			const observer = new IntersectionObserver(
-				(entries) => {
-					entries.forEach((entry) => {
-						if (entry.isIntersecting) {
-							entry.target.classList.add('revealed');
-							observer.unobserve(entry.target);
-						}
-					});
-				},
-				{ threshold: 0.12, rootMargin: '0px 0px -10% 0px' }
-			);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          }
+        }
+      },
+      { threshold: 0.15, rootMargin: "0px 0px -10%" },
+    );
 
-			revealElements.forEach((element) => {
-				observer.observe(element);
-			});
+    document.querySelectorAll("[data-reveal]").forEach((element) => observer.observe(element));
+    remove.push(() => observer.disconnect());
 
-			cleanupCallbacks.push(() => {
-				observer.disconnect();
-			});
-		}
+    const onHeroMove = (event: MouseEvent) => {
+      if (!heroCard) {
+        return;
+      }
 
-		const handleAnchorClick = (event: MouseEvent): void => {
-			const currentTarget = event.currentTarget;
-			if (!(currentTarget instanceof HTMLAnchorElement)) {
-				return;
-			}
+      const rect = heroCard.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
+      const rx = (0.5 - y) * 16;
+      const ry = (x - 0.5) * 16;
 
-			const href = currentTarget.getAttribute('href');
-			if (!href || !href.startsWith('#')) {
-				return;
-			}
+      heroCard.style.setProperty("--rx", `${rx}deg`);
+      heroCard.style.setProperty("--ry", `${ry}deg`);
+      heroCard.style.setProperty("--mx", `${x * 100}%`);
+      heroCard.style.setProperty("--my", `${y * 100}%`);
+    };
 
-			const target = document.querySelector<HTMLElement>(href);
-			if (!target) {
-				return;
-			}
+    const onHeroLeave = () => {
+      if (!heroCard) {
+        return;
+      }
 
-			event.preventDefault();
-			target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-			window.history.replaceState(null, '', href);
-		};
+      heroCard.style.setProperty("--rx", "4deg");
+      heroCard.style.setProperty("--ry", "-2deg");
+      heroCard.style.setProperty("--mx", "50%");
+      heroCard.style.setProperty("--my", "50%");
+    };
 
-		anchorLinks.forEach((anchorLink) => {
-			anchorLink.addEventListener('click', handleAnchorClick);
-			cleanupCallbacks.push(() => {
-				anchorLink.removeEventListener('click', handleAnchorClick);
-			});
-		});
+    heroCard?.addEventListener("mousemove", onHeroMove);
+    heroCard?.addEventListener("mouseleave", onHeroLeave);
+    remove.push(() => {
+      heroCard?.removeEventListener("mousemove", onHeroMove);
+      heroCard?.removeEventListener("mouseleave", onHeroLeave);
+    });
 
-		if (!prefersReducedMotion) {
-			tiltCards.forEach((tiltCard) => {
-				const handleMouseMove = (event: MouseEvent): void => {
-					const bounds = tiltCard.getBoundingClientRect();
-					const horizontalRatio = ((event.clientX - bounds.left) / bounds.width - 0.5) * 2;
-					const verticalRatio = ((event.clientY - bounds.top) / bounds.height - 0.5) * 2;
-					const rotateY = horizontalRatio * 8;
-					const rotateX = verticalRatio * -8;
+    const loadHealth = async () => {
+      try {
+        const response = await fetch("/api/health");
+        const payload = await response.json();
+        healthStatus = payload.status ?? "degraded";
+      } catch {
+        healthStatus = "down";
+      }
+    };
 
-					tiltCard.style.transform =
-						`perspective(1000px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg)`;
-				};
+    void loadHealth();
 
-				const handleMouseLeave = (): void => {
-					tiltCard.style.transform = 'none';
-				};
+    if (!prefersReducedMotion.matches) {
+      const cleanupThree = initHeroScene(heroCanvas);
+      if (cleanupThree) {
+        remove.push(cleanupThree);
+      }
+    }
 
-				tiltCard.addEventListener('mousemove', handleMouseMove);
-				tiltCard.addEventListener('mouseleave', handleMouseLeave);
+    return () => {
+      for (const dispose of remove) {
+        dispose();
+      }
+    };
+  });
 
-				cleanupCallbacks.push(() => {
-					tiltCard.removeEventListener('mousemove', handleMouseMove);
-					tiltCard.removeEventListener('mouseleave', handleMouseLeave);
-					tiltCard.style.transform = 'none';
-				});
-			});
-		}
+  function initHeroScene(canvasHost: HTMLDivElement | null): Dispose | null {
+    const THREE = window.THREE;
 
-		return () => {
-			cleanupCallbacks.forEach((cleanupCallback) => {
-				cleanupCallback();
-			});
-		};
-	});
+    if (!canvasHost || !THREE) {
+      return null;
+    }
+
+    const scene = new THREE.Scene();
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: "high-performance",
+    });
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    canvasHost.appendChild(renderer.domElement);
+
+    let width = canvasHost.clientWidth;
+    let height = canvasHost.clientHeight;
+    const camera = new THREE.OrthographicCamera(-width / 220, width / 220, height / 220, -height / 220, 0.1, 100);
+    camera.position.z = 12;
+
+    const particleCount = 1800;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const basePositions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+
+    for (let index = 0; index < particleCount; index += 1) {
+      const i = index * 3;
+      const x = (Math.random() - 0.5) * 18;
+      const y = (Math.random() - 0.5) * 12;
+      const z = (Math.random() - 0.5) * 4;
+      positions[i] = x;
+      positions[i + 1] = y;
+      positions[i + 2] = z;
+      basePositions[i] = x;
+      basePositions[i + 1] = y;
+      basePositions[i + 2] = z;
+
+      const mix = index / particleCount;
+      colors[i] = 0.32 + mix * 0.28;
+      colors[i + 1] = 0.35 + mix * 0.08;
+      colors[i + 2] = 0.85 + mix * 0.12;
+    }
+
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    const points = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({
+        size: 0.055,
+        transparent: true,
+        opacity: 0.9,
+        vertexColors: true,
+      }),
+    );
+    scene.add(points);
+
+    const wireMaterial = new THREE.MeshBasicMaterial({
+      color: 0x6f6cff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.14,
+    });
+
+    const sphereA = new THREE.Mesh(new THREE.IcosahedronGeometry(2.1, 2), wireMaterial);
+    sphereA.position.set(4.5, 2.2, -1);
+    scene.add(sphereA);
+
+    const sphereBMaterial = wireMaterial.clone();
+    sphereBMaterial.opacity = 0.08;
+    const sphereB = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1.2, 1),
+      sphereBMaterial,
+    );
+    sphereB.position.set(-5.4, -2.4, -1);
+    scene.add(sphereB);
+
+    const pointer = { x: 0, y: 0 };
+    const onPointerMove = (event: PointerEvent) => {
+      const rect = canvasHost.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+
+    let resizeFrame = 0;
+    const onResize = () => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        width = canvasHost.clientWidth;
+        height = canvasHost.clientHeight;
+        camera.left = -width / 220;
+        camera.right = width / 220;
+        camera.top = height / 220;
+        camera.bottom = -height / 220;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height, false);
+      });
+    };
+
+    window.addEventListener("resize", onResize);
+    onResize();
+
+    let frame = 0;
+    const animate = () => {
+      frame = requestAnimationFrame(animate);
+      const time = performance.now() * 0.00028;
+      const worldX = pointer.x * (width / 220);
+      const worldY = pointer.y * (height / 220);
+
+      for (let index = 0; index < particleCount; index += 1) {
+        const i = index * 3;
+        const bx = basePositions[i];
+        const by = basePositions[i + 1];
+
+        let x = bx + Math.sin(time + index * 0.14) * 0.18;
+        let y = by + Math.cos(time * 1.2 + index * 0.08) * 0.14;
+
+        const dx = x - worldX;
+        const dy = y - worldY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 1.8) {
+          const force = (1.8 - distance) * 0.1;
+          x += dx * force;
+          y += dy * force;
+        }
+
+        positions[i] = x;
+        positions[i + 1] = y;
+      }
+
+      geometry.attributes.position.needsUpdate = true;
+      points.rotation.z += 0.0004;
+      camera.position.x = Math.sin(time * 0.35) * 0.22;
+      camera.position.y = Math.cos(time * 0.5) * 0.12;
+      sphereA.rotation.x += 0.001;
+      sphereA.rotation.y += 0.0007;
+      sphereA.scale.setScalar(0.9 + Math.sin(time * 1.6) * 0.08);
+      sphereB.rotation.x -= 0.0007;
+      sphereB.rotation.y += 0.0011;
+      sphereB.scale.setScalar(0.88 + Math.cos(time * 1.1) * 0.06);
+      renderer.render(scene, camera);
+    };
+
+    animate();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(resizeFrame);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("resize", onResize);
+      geometry.dispose();
+      wireMaterial.dispose();
+      sphereBMaterial.dispose();
+      renderer.dispose();
+      canvasHost.replaceChildren();
+    };
+  }
 </script>
 
 <svelte:head>
-	<title>ChurnPulse — Stop SaaS Churn Before It Happens</title>
-	<meta
-		name="description"
-		content="ChurnPulse helps SaaS founders connect Stripe, Paddle, Lemon Squeezy, or Polar, detect churn signals, and trigger AI-personalized win-back sequences before customers leave."
-	/>
+  <title>ChurnPulse | Stop losing revenue you should have kept</title>
+  <meta
+    name="description"
+    content="ChurnPulse catches churn signals across Stripe, Paddle, Lemon Squeezy, and Polar, then launches AI recovery workflows before revenue slips away."
+  />
 </svelte:head>
 
-<main id="landing" class="text-primary">
-	<header class="landing-nav" class:landing-nav--scrolled={isScrolled} id="top">
-		<a class="landing-nav__logo" href="/" aria-label="ChurnPulse home">
-			<svg
-				class="text-brand"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="1.8"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				aria-hidden="true"
-			>
-				<path class="text-brand" d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-			</svg>
-			<span class="landing-nav__wordmark">
-				Churn<em class="text-brand">Pulse</em>
-			</span>
-		</a>
+<div class="landing-shell">
+  <header class="landing-nav" class:landing-nav--scrolled={navScrolled}>
+    <a class="landing-nav__logo" href="/" aria-label="ChurnPulse home">
+      <span class="app-sidebar__logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
+        </svg>
+      </span>
+      <span class="landing-nav__wordmark">Churn<em>Pulse</em></span>
+    </a>
 
-		<nav class="landing-nav__links" aria-label="Primary">
-			{#each navLinks as navLink (navLink.label)}
-				<a class="landing-nav__link" href={navLink.href}>{navLink.label}</a>
-			{/each}
-			<a class="btn btn-secondary btn-sm" href="/sign-in">Sign in</a>
-			<a class="btn btn-primary btn-sm" href="/sign-up">Start free →</a>
-		</nav>
-	</header>
+    <nav class="landing-nav__links" aria-label="Primary">
+      {#each navItems as item, index (item.href)}
+        <a class="landing-nav__link landing-nav__link--stagger" style={`animation-delay:${index * 50}ms`} href={item.href}>
+          {item.label}
+        </a>
+      {/each}
+      <a class="btn btn-secondary btn-sm" href="/sign-in">Sign in</a>
+      <a class="btn btn-primary btn-sm landing-nav__pulse" href="/sign-up">Start free</a>
+    </nav>
+  </header>
 
-	<section class="hero" id="hero">
-		<div class="hero__glow" aria-hidden="true"></div>
-		<div class="hero__glow-2" aria-hidden="true"></div>
+  <main class="landing-main">
+    <section class="hero" id="hero">
+      <div class="hero__canvas" bind:this={heroCanvas} aria-hidden="true" role="presentation"></div>
 
-		<div class="hero__content" id="hero-content">
-			<p class="hero__eyebrow">Multi-platform churn prevention</p>
+      <div class="hero__copy">
+        <p class="hero__eyebrow" data-reveal>
+          <span class="hero__eyebrow-dot"></span>
+          ChurnPulse V2 — now in beta
+        </p>
 
-			<h1 class="hero__title">
-				Stop losing customers
-				<br class="text-primary" />
-				you could have <span class="hero__title--accent">saved</span>
-			</h1>
+        <h1 class="hero__title">
+          {#each heroWords as word, index (word)}
+            <span class:hero__title-gradient={word === "revenue"} style={`animation-delay:${index * 80}ms`}>
+              {word}
+            </span>
+          {/each}
+        </h1>
 
-			<p class="hero__subtitle">
-				ChurnPulse connects to Stripe, Paddle, Lemon Squeezy, or Polar in 60 seconds and
-				automatically detects 7 churn signals including card failures, disengagement, plan
-				downgrades, and more, then fires AI-personalized win-back emails before customers
-				cancel.
-			</p>
+        <p class="hero__subtitle" data-reveal>
+          Detect churn signals across Stripe, Paddle, Lemon Squeezy, and Polar. Then launch the right save motion before the customer actually leaves.
+        </p>
 
-			<div class="hero__ctas" id="hero-actions">
-				<a class="btn btn-primary btn-lg" href="/sign-up" id="hero-cta-primary">Start free →</a>
-				<a class="btn btn-ghost btn-lg" href="/demo" id="hero-cta-demo">See live demo</a>
-			</div>
+        <div class="hero__actions" data-reveal>
+          <a class="btn btn-primary btn-lg hero__cta" href="/sign-up">
+            Start free — 60s setup
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14" />
+              <path d="m13 5 7 7-7 7" />
+            </svg>
+          </a>
+          <a class="btn btn-ghost btn-lg hero__ghost" href="/demo">Watch 90s demo</a>
+        </div>
 
-			<div class="hero__social-proof" id="hero-proof">
-				{#each socialProofItems as socialProofItem (socialProofItem.label)}
-					<div class="hero__proof-item">
-						<svg
-							class="text-brand"
-							viewBox="0 0 14 14"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.7"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							aria-hidden="true"
-						>
-							<path class="text-brand" d="m2.5 7.5 2.5 2.5 6-6" />
-						</svg>
-						<span class="font-mono">{socialProofItem.label}</span>
-					</div>
-				{/each}
-			</div>
+        <div class="hero__proof" data-reveal>
+          {#each proofChips as chip}
+            <div class="hero__proof-chip">
+              <span class={`hero__proof-dot hero__proof-dot--${chip.tone}`}></span>
+              <span>{chip.label}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
 
-			<div class="hero__mockup" id="hero-mockup">
-				<div class="hero__mockup-inner" id="hero-mockup-inner">
-					<article class="card card-brand" id="dashboard-preview">
-						<div class="hero__social-proof" id="dashboard-preview-header">
-							<div id="dashboard-preview-title">
-								<p class="label">AT-RISK CUSTOMERS</p>
-							</div>
-							<div class="hero__proof-item" id="dashboard-preview-live">
-								<span class="status-dot status-dot--detected" aria-hidden="true"></span>
-								<span class="font-mono">Live</span>
-							</div>
-						</div>
+      <div class="hero__card-wrap">
+        <section class="hero-card" bind:this={heroCard}>
+          <div class="hero-card__header">
+            <div>
+              <p class="page-kicker">Live signal feed</p>
+              <h3>Recovery center</h3>
+            </div>
+            <span class="page__header-badge">AI active</span>
+          </div>
 
-						<table class="table" id="dashboard-preview-table">
-							<thead class="table__head">
-								<tr class="table__body">
-									<th class="font-mono">Customer</th>
-									<th class="font-mono">Signal</th>
-									<th class="font-mono">MRR</th>
-									<th class="font-mono">Status</th>
-								</tr>
-							</thead>
-							<tbody class="table__body">
-								{#each previewRows as previewRow, index (previewRow.customer)}
-									<tr
-										class={`reveal ${index === 0 ? 'revealed' : ''} ${index === 0 ? 'reveal-delay-1' : index === 1 ? 'reveal-delay-2' : index === 2 ? 'reveal-delay-3' : index === 3 ? 'reveal-delay-4' : 'reveal-delay-4'}`}
-									>
-										<td class="text-primary">
-											<div class="hero__proof-item" id={`preview-customer-${index + 1}`}>
-												{#if previewRow.statusClass}
-													<span class={`status-dot ${previewRow.statusClass}`} aria-hidden="true"></span>
-												{/if}
-												<span class="text-primary">{previewRow.customer}</span>
-											</div>
-										</td>
-										<td class="text-primary">
-											<span class={`badge ${previewRow.signalClass}`}>{previewRow.signal}</span>
-										</td>
-										<td class="font-mono text-primary">{previewRow.mrr}</td>
-										<td class="text-primary">
-											<span class={`badge ${previewRow.badgeClass}`}>{previewRow.badgeLabel}</span>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</article>
-				</div>
-			</div>
-		</div>
-	</section>
+          <div class="hero-card__metrics">
+            <div class="stat-card">
+              <p class="stat-card__label">At-risk MRR</p>
+              <p class="stat-card__value stat-card__value--danger">$18,930</p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-card__label">Recovery rate</p>
+              <p class="stat-card__value stat-card__value--brand">67%</p>
+            </div>
+          </div>
 
-	<section class="section platforms-section reveal" id="platforms">
-		<p class="section__label" id="platforms-label">Works with</p>
-		<div class="platforms-grid" id="platforms-grid">
-			{#each [
-				{ name: 'Stripe', color: '#635BFF' },
-				{ name: 'Paddle', color: '#0EA5E9' },
-				{ name: 'Lemon Squeezy', color: '#FFC233' },
-				{ name: 'Polar', color: '#4F6EF7' }
-			] as platform (platform.name)}
-				<div
-					class="platform-chip"
-					style={`--chip-color: ${platform.color}`}
-					id={`platform-${platform.name.toLowerCase().replace(' ', '-')}`}
-				>
-					<span class="platform-chip__dot" aria-hidden="true" id={`platform-dot-${platform.name.toLowerCase().replace(' ', '-')}`}></span>
-					<span class="platform-chip__name" id={`platform-name-${platform.name.toLowerCase().replace(' ', '-')}`}>
-						{platform.name}
-					</span>
-				</div>
-			{/each}
-		</div>
-	</section>
+          <div class="hero-card__feed">
+            {#each signalFeed as entry (entry.customer + entry.signal)}
+              <article class="hero-card__feed-row">
+                <span class={`hero-card__feed-dot hero-card__feed-dot--${entry.tone}`}></span>
+                <div>
+                  <strong>{entry.customer}</strong>
+                  <p>{entry.signal}</p>
+                </div>
+                <span>{entry.amount}</span>
+              </article>
+            {/each}
+          </div>
+        </section>
+      </div>
+    </section>
 
-	<section class="section reveal" id="signals">
-		<span class="section__label">What we detect</span>
-		<h2 class="section__heading">7 signals. Zero missed churn.</h2>
-		<p class="section__subtitle">
-			Every signal maps to a specific failure mode inside a subscription business. ChurnPulse
-			watches for all of them continuously so recovery starts before the cancellation email does.
-		</p>
+    <section class="landing-section" id="platforms" data-reveal>
+      <div class="landing-section__header">
+        <p class="page-kicker">Platform graph</p>
+        <h2>Every billing signal routes through one operating layer</h2>
+        <p>OAuth where it exists, signed webhooks where it does not. ChurnPulse normalizes every risk event into one recovery workflow.</p>
+      </div>
 
-			<div class="grid-3" id="signals-grid">
-			{#each signalCards as signalCard (signalCard.title)}
-				<article
-					class={`signal-card ${signalCard.cardClass} tilt-card reveal ${signalCard.revealDelay}`}
-				>
-					{#if signalCard.badgeLabel && signalCard.badgeClass}
-						<div class="pricing-card__badge" id={`signal-badge-${signalCard.title}`}>
-							<span class={`badge ${signalCard.badgeClass}`}>{signalCard.badgeLabel}</span>
-						</div>
-					{/if}
-					<h3 class="signal-card__name">{signalCard.title}</h3>
-					<p class="signal-card__desc">{signalCard.description}</p>
-					<p class="signal-card__auto">Fires automatically</p>
-				</article>
-			{/each}
-		</div>
-	</section>
+      <div class="integration-map card">
+        <svg viewBox="0 0 800 460" aria-hidden="true">
+          <defs>
+            <linearGradient id="map-line" x1="0%" x2="100%" y1="0%" y2="0%">
+              <stop offset="0%" stop-color="oklch(65% 0.2 272 / 0.2)"></stop>
+              <stop offset="50%" stop-color="oklch(65% 0.2 272 / 0.85)"></stop>
+              <stop offset="100%" stop-color="oklch(80% 0.2 147 / 0.2)"></stop>
+            </linearGradient>
+          </defs>
 
-	<section class="section reveal" id="how-it-works">
-		<span class="section__label">How it works</span>
-		<h2 class="section__heading">The recovery loop, end to end.</h2>
-		<p class="section__subtitle">
-			Connect once, let the system watch continuously, and intervene with signal-specific
-			sequences while the account is still salvageable.
-		</p>
+          <circle class="integration-map__pulse" cx="400" cy="230" r="52"></circle>
+          <circle class="integration-map__center" cx="400" cy="230" r="44"></circle>
+          <text x="400" y="236" text-anchor="middle">ChurnPulse</text>
 
-		<div class="steps-grid" id="steps-grid">
-			{#each stepItems as stepItem, index (stepItem.number)}
-				<article class={`step reveal ${index === 0 ? 'reveal-delay-1' : index === 1 ? 'reveal-delay-2' : 'reveal-delay-3'}`}>
-					<div class="step__icon">
-						<svg
-							class="text-brand"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.8"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							aria-hidden="true"
-						>
-							{#each buildStepIconPath(stepItem.icon) as stepIconPath (stepIconPath)}
-								<path class="text-brand" d={stepIconPath}></path>
-							{/each}
-						</svg>
-					</div>
-					<div class="step__number">{stepItem.number}</div>
-					<h3 class="step__title">{stepItem.title}</h3>
-					<p class="step__desc">{stepItem.description}</p>
-				</article>
+          <path class="integration-map__path" d="M400 230 L210 90"></path>
+          <path class="integration-map__path" d="M400 230 L610 110"></path>
+          <path class="integration-map__path" d="M400 230 L650 300"></path>
+          <path class="integration-map__path" d="M400 230 L390 390"></path>
+          <path class="integration-map__path" d="M400 230 L160 300"></path>
 
-				{#if index < stepItems.length - 1}
-					<div class="step-connector" aria-hidden="true">
-						<svg
-							class="text-muted"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.8"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path class="text-muted" d="M4 12h16" />
-							<path class="text-muted" d="m14 6 6 6-6 6" />
-						</svg>
-					</div>
-				{/if}
-			{/each}
-		</div>
-	</section>
+          <g class="integration-map__node" transform="translate(160 72)">
+            <rect rx="18" width="120" height="56"></rect>
+            <text x="60" y="34" text-anchor="middle">Stripe</text>
+          </g>
+          <g class="integration-map__node" transform="translate(560 82)">
+            <rect rx="18" width="120" height="56"></rect>
+            <text x="60" y="34" text-anchor="middle">Paddle</text>
+          </g>
+          <g class="integration-map__node" transform="translate(592 272)">
+            <rect rx="18" width="150" height="56"></rect>
+            <text x="75" y="34" text-anchor="middle">Lemon Squeezy</text>
+          </g>
+          <g class="integration-map__node" transform="translate(320 372)">
+            <rect rx="18" width="140" height="56"></rect>
+            <text x="70" y="34" text-anchor="middle">Polar</text>
+          </g>
+          <g class="integration-map__node" transform="translate(70 272)">
+            <rect rx="18" width="180" height="56"></rect>
+            <text x="90" y="34" text-anchor="middle">Your Dashboard</text>
+          </g>
+        </svg>
+      </div>
+    </section>
 
-	<section class="section reveal" id="pricing">
-		<span class="section__label">Simple pricing</span>
-		<h2 class="section__heading">One plan shape. Three stages of urgency.</h2>
-		<p class="section__subtitle">
-			Choose the depth that matches your customer base today. Upgrade when churn becomes a board
-			question instead of a founder instinct.
-		</p>
+    <section class="landing-section" id="signals">
+      <div class="landing-section__header" data-reveal>
+        <p class="page-kicker">Signal intelligence</p>
+        <h2>Each churn signal carries context, urgency, and a save motion</h2>
+      </div>
 
-		<div class="pricing-grid" id="pricing-grid">
-			{#each pricingPlans as pricingPlan, index (pricingPlan.name)}
-				<article
-					class={`pricing-card ${pricingPlan.featured ? 'pricing-card--featured' : ''} tilt-card reveal ${index === 0 ? 'reveal-delay-1' : index === 1 ? 'reveal-delay-2' : 'reveal-delay-3'}`}
-				>
-					{#if pricingPlan.badgeLabel}
-						<div class="pricing-card__badge">
-							<span class="badge badge-brand">{pricingPlan.badgeLabel}</span>
-						</div>
-					{/if}
+      <div class="signal-flip-grid">
+        {#each signalCards as card, index (card.title)}
+          <article class="signal-flip-card" data-reveal style={`transition-delay:${index * 120}ms`}>
+            <div class="signal-flip-card__inner">
+              <div class="signal-flip-card__face signal-flip-card__face--front">
+                <p class="page-kicker">Signal type</p>
+                <h3>{card.title}</h3>
+                <p>{card.description}</p>
+              </div>
+              <div class="signal-flip-card__face signal-flip-card__face--back">
+                <p class="page-kicker">Example</p>
+                <p>{card.scenario}</p>
+              </div>
+            </div>
+          </article>
+        {/each}
+      </div>
+    </section>
 
-					<p class="pricing-card__plan">{pricingPlan.name}</p>
+    <section class="landing-section" id="how-it-works">
+      <div class="landing-section__header" data-reveal>
+        <p class="page-kicker">How it works</p>
+        <h2>One timeline from billing event to recovery motion</h2>
+      </div>
 
-					<div class="pricing-card__price">
-						<span class="pricing-card__amount">{pricingPlan.price}</span>
-						<span class="pricing-card__period">/mo</span>
-					</div>
+      <div class="timeline" data-reveal>
+        <span class="timeline__rail" aria-hidden="true"></span>
+        {#each steps as step}
+          <article class="timeline__step card">
+            <span class="timeline__watermark">{step.number}</span>
+            <span class="timeline__node">{step.number}</span>
+            <h3>{step.title}</h3>
+            <p>{step.copy}</p>
+          </article>
+        {/each}
+      </div>
+    </section>
 
-					<p class="text-muted">{pricingPlan.audience}</p>
-					<div class="pricing-card__divider"></div>
-					<p class="pricing-card__description">{pricingPlan.description}</p>
+    <section class="landing-section" id="pricing">
+      <div class="landing-section__header" data-reveal>
+        <p class="page-kicker">Pricing</p>
+        <h2>Pricing that pays for itself the first time a customer is saved</h2>
+      </div>
 
-					<ul class="pricing-card__features">
-						{#each pricingPlan.features as pricingFeature (pricingFeature)}
-							<li class="pricing-card__feature">
-								<svg
-									class="pricing-card__feature-icon"
-									viewBox="0 0 16 16"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="1.8"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									aria-hidden="true"
-								>
-									<path class="pricing-card__feature-icon" d="m3 8 3 3 7-7" />
-								</svg>
-								<span class="text-secondary">{pricingFeature}</span>
-							</li>
-						{/each}
-					</ul>
+      <div class="pricing-grid">
+        {#each pricingPlans as plan}
+          <article class="pricing-card" class:pricing-card--featured={plan.featured} data-reveal>
+            {#if plan.badge}
+              <span class="pricing-card__badge">{plan.badge}</span>
+            {/if}
+            <div class="pricing-card__head">
+              <h3>{plan.name}</h3>
+              <p>{plan.blurb}</p>
+            </div>
+            <p class="pricing-card__price">
+              <strong>${plan.monthly}</strong>
+              <span>/ month</span>
+            </p>
+            <ul class="pricing-card__features">
+              {#each plan.features as feature}
+                <li>{feature}</li>
+              {/each}
+            </ul>
+            <a class={`btn ${plan.featured ? "btn-primary" : "btn-secondary"} btn-full`} href="/sign-up">
+              {plan.featured ? "Start free" : "Choose plan"}
+            </a>
+          </article>
+        {/each}
+      </div>
+    </section>
+  </main>
 
-					<a
-						class={`btn ${pricingPlan.featured ? 'btn-primary' : 'btn-secondary'} btn-full`}
-						href={pricingPlan.ctaHref}
-					>
-						{pricingPlan.ctaLabel}
-					</a>
-				</article>
-			{/each}
-		</div>
+  <footer class="footer landing-footer">
+    <div class="footer__intro">
+      <div class="landing-nav__logo">
+        <span class="app-sidebar__logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
+          </svg>
+        </span>
+        <span class="landing-nav__wordmark">Churn<em>Pulse</em></span>
+      </div>
+      <p>AI-powered churn prevention for SaaS teams that care about recovered revenue, not vanity dashboards.</p>
+      <p class="landing-footer__health">
+        <span class={`landing-footer__health-dot landing-footer__health-dot--${healthStatus}`}></span>
+        All systems {healthStatus === "ok" ? "operational" : healthStatus}
+      </p>
+    </div>
 
-		<p class="docs-callout">Beta users get lifetime 30% discount — limited spots remaining.</p>
-	</section>
-
-	<footer class="footer" id="footer">
-		<p class="footer__copy">© 2025 ChurnPulse. Built for SaaS founders.</p>
-		<nav class="footer__links" aria-label="Footer">
-			<a class="footer__link" href="/privacy">Privacy</a>
-			<a class="footer__link" href="/terms-and-conditions">Terms</a>
-			<a class="footer__link" href="/docs">Changelog</a>
-			<a class="footer__link" href="/docs">Docs</a>
-		</nav>
-	</footer>
-</main>
+    <div class="footer__links">
+      <a class="footer__link" href="/docs">Docs</a>
+      <a class="footer__link" href="/pricing">Pricing</a>
+      <a class="footer__link" href="/demo">Demo</a>
+      <a class="footer__link" href="/changelog">Changelog</a>
+      <a class="footer__link" href="/privacy">Privacy</a>
+      <a class="footer__link" href="/terms-and-conditions">Terms</a>
+    </div>
+  </footer>
+</div>

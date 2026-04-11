@@ -1,7 +1,29 @@
 <script lang="ts">
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import { toast } from '$lib/stores/toast';
 
 	let { data } = $props();
+	let customizationDialog = $state<HTMLDialogElement | null>(null);
+	let selectedTemplateId = $state<string | null>(null);
+
+	function openCustomizationRequest(templateId: string): void {
+		selectedTemplateId = templateId;
+		customizationDialog?.showModal();
+	}
+
+	function submitCustomizationRequest(event: SubmitEvent): void {
+		event.preventDefault();
+		const formData = new FormData(event.currentTarget as HTMLFormElement);
+		const templateId = String(formData.get('template_id') ?? '');
+		const email = String(formData.get('email') ?? '');
+		const notes = String(formData.get('notes') ?? '');
+		const subject = encodeURIComponent(`Template customization request: ${templateId}`);
+		const body = encodeURIComponent(`Workspace email: ${email}\n\nTemplate: ${templateId}\n\nRequest:\n${notes}`);
+
+		window.location.href = `mailto:support@churnpulse.io?subject=${subject}&body=${body}`;
+		customizationDialog?.close();
+		toast.success('Your email client was opened with the customization request.');
+	}
 </script>
 
 <svelte:head>
@@ -12,50 +34,48 @@
 	/>
 </svelte:head>
 
-<section class="space-y-6 px-6 py-6 md:px-8">
-	<div class="space-y-3">
-		<p class="font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-cyan)]">
+<section class="template-page">
+	<div class="page-header__copy">
+		<p class="page-header__kicker">
 			Template library
 		</p>
-		<h2 class="font-mono text-3xl uppercase tracking-[0.06em] text-white">
-			Read-only previews of every live recovery template.
+		<h2 class="page-header__title">
+			Recovery templates used across your live sequences.
 		</h2>
-		<p class="max-w-3xl text-sm leading-7 text-[var(--text-secondary)]">
-			This view is informational in v1. It shows the exact subject lines and email layouts used
-			by each sequence so operators can audit tone, timing, and structure before customization
-			ships.
+		<p class="page-header__subtitle">
+			Review the exact subject lines and layouts used by each sequence, then request tailored edits
+			for the templates that need operator-specific copy or brand treatment.
 		</p>
 	</div>
 
-	<div class="grid gap-4">
+	<div class="template-page__grid">
 		{#each data.templates as template (template.id)}
-			<article class="border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-				<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-					<div class="space-y-3">
-						<div class="flex flex-wrap items-center gap-3">
+			<article class="template-page__card card">
+				<div class="template-page__card-top">
+					<div class="template-page__copy">
+						<div class="template-page__meta">
 							<Badge type={template.signalType} size="sm" />
-							<span class="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+							<span class="section-label">
 								Step {template.step}
 							</span>
 						</div>
 
-						<div>
-							<p class="text-sm text-[var(--text-secondary)]">Subject line</p>
-							<p class="mt-2 text-lg font-semibold text-white">{template.subject}</p>
+						<div class="template-page__subject-block">
+							<p class="settings-muted">Subject line</p>
+							<p class="section-title">{template.subject}</p>
 						</div>
 					</div>
 
 					<button
 						class="customize-button"
 						type="button"
-						disabled
-						title="Template customization coming soon"
+						onclick={() => openCustomizationRequest(template.id)}
 					>
-						Customize
+						Request customization
 					</button>
 				</div>
 
-				<div class="mt-5 border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+				<div class="template-page__preview-wrap">
 					<iframe
 						class="template-preview"
 						srcdoc={template.html}
@@ -66,26 +86,27 @@
 			</article>
 		{/each}
 	</div>
+
+	<dialog class="command-palette" bind:this={customizationDialog}>
+		<form class="command-palette__panel" method="dialog" onsubmit={submitCustomizationRequest}>
+			<div class="command-palette__header">
+				<h3>Request customization</h3>
+			</div>
+			<input type="hidden" name="template_id" value={selectedTemplateId ?? ''} />
+			<label class="form-group">
+				<span class="form-label">Contact email</span>
+				<input class="form-input" type="email" name="email" required />
+			</label>
+			<label class="form-group">
+				<span class="form-label">Requested changes</span>
+				<textarea class="form-input" name="notes" rows="5" placeholder="Tone, branding, variables, CTA changes, or provider-specific copy."></textarea>
+			</label>
+			<div class="settings-provider-card__actions">
+				<button class="btn btn-primary btn-sm" type="submit">Email request</button>
+				<button class="btn btn-secondary btn-sm" type="button" onclick={() => customizationDialog?.close()}>
+					Cancel
+				</button>
+			</div>
+		</form>
+	</dialog>
 </section>
-
-<style>
-	.customize-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 38px;
-		border: 1px solid var(--border-default);
-		padding: 0 1rem;
-		background: transparent;
-		color: var(--text-muted);
-		cursor: not-allowed;
-	}
-
-	.template-preview {
-		width: 100%;
-		height: 200px;
-		border: 0;
-		background: white;
-		pointer-events: none;
-	}
-</style>

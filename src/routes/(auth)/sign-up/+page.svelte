@@ -2,27 +2,40 @@
 	import SignUp from 'clerk-sveltekit/client/SignUp.svelte';
 
 	const clerkAppearance = {
+		layout: {
+			socialButtonsVariant: 'blockButton'
+		},
 		elements: {
-			card: 'bg-transparent shadow-none border-0',
-			rootBox: 'w-full',
+			badge: 'auth-clerk-badge',
+			card: 'auth-clerk-card',
+			cardBox: 'auth-clerk-card-box',
+			dividerLine: 'auth-clerk-divider-line',
+			dividerText: 'auth-clerk-divider-text',
+			footer: 'auth-clerk-footer',
+			footerAction: 'auth-clerk-footer-action',
+			footerActionLink: 'auth-clerk-link',
+			footerActionText: 'auth-clerk-footer-text',
+			formButtonPrimary: 'auth-clerk-button',
+			formFieldInput: 'auth-clerk-input',
+			formFieldInputShowPasswordButton: 'auth-clerk-password-toggle',
+			formFieldLabel: 'auth-clerk-field-label',
+			formFieldSuccessText: 'auth-clerk-field-success',
+			rootBox: 'auth-clerk-root',
+			pageScrollBox: 'auth-clerk-scroll',
 			headerTitle: 'hidden',
 			headerSubtitle: 'hidden',
-			socialButtonsBlockButton:
-				'border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:bg-[var(--bg-overlay)]',
-			formButtonPrimary:
-				'border border-[var(--accent-cyan-border)] bg-[var(--accent-cyan-dim)] text-[var(--accent-cyan)] hover:bg-[rgba(0,229,255,0.22)]',
-			formFieldInput:
-				'border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-primary)] focus:border-[var(--accent-cyan)]',
-			footerActionLink: 'text-[var(--accent-cyan)] hover:text-white'
+			socialButtonsBlockButton: 'auth-clerk-social',
+			socialButtonsBlockButtonArrow: 'auth-clerk-social-arrow',
+			socialButtonsBlockButtonText: 'auth-clerk-social-text'
 		},
 		variables: {
-			colorBackground: '#111113',
-			colorInputBackground: '#1A1A1D',
-			colorInputText: '#F0F0F2',
-			colorText: '#F0F0F2',
-			colorTextSecondary: '#8A8A92',
-			colorPrimary: '#00E5FF',
-			borderRadius: '0px'
+			colorBackground: '#1a1a1f',
+			colorInputBackground: '#222229',
+			colorInputText: '#EDEDED',
+			colorText: '#EDEDED',
+			colorTextSecondary: '#A0A0AB',
+			colorPrimary: '#4F6EF7',
+			borderRadius: '10px'
 		}
 	} as const;
 </script>
@@ -31,18 +44,16 @@
 	<title>Create account | ChurnPulse</title>
 	<meta
 		name="description"
-		content="Create your ChurnPulse account and connect Stripe to launch retention workflows in minutes."
+		content="Create your ChurnPulse account and connect Polar to launch retention workflows in minutes."
 	/>
 </svelte:head>
 
-<section
-	class="flex min-h-screen items-center justify-center bg-[var(--bg-base)] px-6 py-10 text-[var(--text-primary)]"
->
-	<div class="w-full max-w-md border border-[var(--border-default)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-surface)]">
-		<div class="mb-8 space-y-3">
-			<div class="flex items-center gap-3 text-[var(--accent-cyan)]">
+<section class="auth-page" id="auth-sign-up-page">
+	<div class="auth-shell" id="auth-sign-up-shell">
+		<div class="auth-stage" id="auth-sign-up-stage">
+			<div class="auth-brand" id="auth-sign-up-brand">
 				<svg
-					class="h-5 w-5"
+					class="auth-brand__bolt"
 					viewBox="0 0 24 24"
 					fill="none"
 					stroke="currentColor"
@@ -50,21 +61,35 @@
 					stroke-linecap="round"
 					stroke-linejoin="round"
 					aria-hidden="true"
+					id="auth-sign-up-bolt"
 				>
-					<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
+					<path class="auth-brand__bolt-path" d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
 				</svg>
-				<span class="font-mono text-sm uppercase tracking-[0.24em]">ChurnPulse</span>
+				<span class="auth-brand__label" id="auth-sign-up-brand-label">ChurnPulse</span>
 			</div>
-			<h1 class="font-mono text-3xl uppercase tracking-[0.08em] text-white">Launch control</h1>
-			<p class="text-sm leading-6 text-[var(--text-secondary)]">Join 100+ SaaS founders.</p>
+
+			<div class="auth-copy" id="auth-sign-up-copy">
+				<p class="auth-kicker" id="auth-sign-up-kicker">Create your workspace</p>
+				<h1 class="auth-title" id="auth-sign-up-title">Launch control</h1>
+				<p class="auth-subtitle" id="auth-sign-up-subtitle">
+					Connect your billing stack, detect churn risk early, and let recovery sequences start automatically.
+				</p>
+			</div>
+
+			<div class="auth-proof-list" id="auth-sign-up-proof-list" aria-label="Product benefits">
+				<div class="auth-proof-chip" id="auth-sign-up-proof-platforms">Stripe, Paddle, LS, Polar</div>
+				<div class="auth-proof-chip" id="auth-sign-up-proof-signals">7 churn signals out of the box</div>
+				<div class="auth-proof-chip" id="auth-sign-up-proof-ai">AI-personalized win-back emails</div>
+			</div>
 		</div>
 
-		<SignUp appearance={clerkAppearance} redirectUrl="/dashboard" signInUrl="/sign-in" />
+		<div class="auth-card card card-brand" id="auth-sign-up-card">
+			<div class="auth-card__header" id="auth-sign-up-card-header">
+				<p class="auth-card__eyebrow" id="auth-sign-up-card-eyebrow">Start free</p>
+				<h2 class="auth-card__title" id="auth-sign-up-card-title">Create your account</h2>
+			</div>
+
+			<SignUp appearance={clerkAppearance} redirectUrl="/dashboard" signInUrl="/sign-in" />
+		</div>
 	</div>
 </section>
-
-<style>
-	:global(.cl-footer) {
-		background: transparent;
-	}
-</style>

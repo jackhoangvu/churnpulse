@@ -105,15 +105,24 @@ export async function resolveOrganization(userId: string | undefined): Promise<O
 }
 
 export async function resolveOrCreateOrganization(
-	session: Session
+	session: Session,
+	options: { allowCreate?: boolean } = {}
 ): Promise<OrganizationRow | null> {
 	if (!session?.userId) {
 		return null;
 	}
 
 	const existing = await resolveOrganization(session.userId);
-	if (existing) {
+	if (existing || !options.allowCreate) {
 		return existing;
+	}
+
+	return createOrganization(session);
+}
+
+export async function createOrganization(session: Session): Promise<OrganizationRow | null> {
+	if (!session?.userId) {
+		return null;
 	}
 
 	const user = serializeSessionUser(session);
@@ -122,11 +131,26 @@ export async function resolveOrCreateOrganization(
 		: user?.email
 			? `${user.email}'s workspace`
 			: 'ChurnPulse workspace';
+	const organizationUserId = toOrganizationUserId(session.userId);
+
+	const { data: existingOrganizations, error: existingOrganizationsError } = await admin
+		.from('organizations')
+		.select('id')
+		.eq('user_id', organizationUserId)
+		.limit(3);
+
+	if (existingOrganizationsError) {
+		throw existingOrganizationsError;
+	}
+
+	if ((existingOrganizations?.length ?? 0) >= 3) {
+		throw new Error('Organization limit reached');
+	}
 
 	const { data, error } = await admin
 		.from('organizations')
 		.insert({
-			user_id: toOrganizationUserId(session.userId),
+			user_id: organizationUserId,
 			name: inferredName,
 			metadata: {
 				clerk_user_id: session.userId

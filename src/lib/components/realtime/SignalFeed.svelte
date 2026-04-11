@@ -1,21 +1,13 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte';
 	import { createBrowserClient } from '$lib/supabase';
-	import {
-		dashboardLayoutContextKey,
-		type DashboardLayoutContext
-	} from '$lib/components/realtime/context';
 	import { SIGNAL_CONFIGS, type ChurnSignal } from '$lib/types';
 	import { toSignal } from '$lib/signal-utils';
 	import type { ChurnSignalRow } from '$lib/types/supabase';
-
-	type Toast = {
-		id: string;
-		message: string;
-	};
+	import { toast } from '$lib/stores/toast';
 
 	interface Props {
 		orgId: string | null;
+		onSignal?: (signal: ChurnSignal) => void;
 	}
 
 	const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -23,24 +15,10 @@
 		currency: 'USD',
 		maximumFractionDigits: 0
 	});
-	const context = getContext<DashboardLayoutContext | undefined>(dashboardLayoutContextKey);
-	const dispatch = createEventDispatcher<{
-		'new-signal': ChurnSignal;
-	}>();
-
-	let { orgId }: Props = $props();
-	let toasts = $state<Toast[]>([]);
+	let { orgId, onSignal }: Props = $props();
 	let hasInteracted = $state(false);
 	let channelState = $state<'idle' | 'subscribing' | 'subscribed'>('idle');
-
-	function addToast(message: string): void {
-		const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		toasts = [{ id, message }, ...toasts].slice(0, 3);
-
-		window.setTimeout(() => {
-			toasts = toasts.filter((toast) => toast.id !== id);
-		}, 4000);
-	}
+	let supabase = $state<ReturnType<typeof createBrowserClient> | null>(null);
 
 	async function playBeep(): Promise<void> {
 		if (!hasInteracted || typeof window === 'undefined') {
@@ -85,11 +63,8 @@
 		const amount = currencyFormatter.format(signal.mrr_amount / 100);
 		const message = `New ${label.toLowerCase()} signal: ${customerName} — ${amount}/mo at risk`;
 
-		addToast(message);
-		if (context) {
-			context.unreadSignalCount += 1;
-		}
-		dispatch('new-signal', signal);
+		toast.info(message, 'Realtime signal');
+		onSignal?.(signal);
 		void playBeep();
 	}
 
@@ -112,17 +87,27 @@
 	});
 
 	$effect(() => {
-		if (!orgId || typeof document === 'undefined') {
+		if (typeof document === 'undefined') {
 			return;
 		}
 
-		const supabase = createBrowserClient();
+		if (!supabase) {
+			supabase = createBrowserClient();
+		}
+	});
+
+	$effect(() => {
+		if (!orgId || typeof document === 'undefined' || !supabase) {
+			return;
+		}
+
+		const client = supabase;
 		let activeChannel = subscribe();
 
 		function subscribe() {
 			channelState = 'subscribing';
 
-			return supabase
+			return client
 				.channel(`churn-signals:${orgId}`)
 				.on(
 					'postgres_changes',
@@ -147,7 +132,7 @@
 				return;
 			}
 
-			void supabase.removeChannel(activeChannel);
+			void client.removeChannel(activeChannel);
 			activeChannel = subscribe();
 		};
 
@@ -155,18 +140,7 @@
 
 		return () => {
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
-			void supabase.removeChannel(activeChannel);
+			void client.removeChannel(activeChannel);
 		};
 	});
 </script>
-
-{#if toasts.length > 0}
-	<div class="signal-feed-toasts" aria-live="polite" aria-atomic="true">
-		{#each toasts as toast (toast.id)}
-			<div class="signal-toast">
-				<div class="signal-toast__accent"></div>
-				<p class="signal-toast__message">{toast.message}</p>
-			</div>
-		{/each}
-	</div>
-{/if}

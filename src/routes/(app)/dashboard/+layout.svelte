@@ -1,13 +1,8 @@
 <script lang="ts">
-	import { setContext } from 'svelte';
 	import { page } from '$app/state';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
-	import MobileNav from '$lib/components/layout/MobileNav.svelte';
 	import SignalFeed from '$lib/components/realtime/SignalFeed.svelte';
-	import {
-		dashboardLayoutContextKey,
-		type DashboardLayoutContext
-	} from '$lib/components/realtime/context';
+	import type { ChurnSignal } from '$lib/types';
 	import type { LayoutData } from './$types';
 
 	interface Props {
@@ -17,22 +12,25 @@
 
 	let { data, children }: Props = $props();
 	const isOnboardingRoute = $derived(page.url.pathname === '/dashboard/onboarding');
-	const dashboardContext = $state<DashboardLayoutContext>({
-		org: null,
-		user: null,
-		isConnected: false,
-		unreadSignalCount: 0
-	});
+	let unreadSignalCount = $state(0);
 
-	setContext(dashboardLayoutContextKey, dashboardContext);
+	function handleSignal(_signal: ChurnSignal): void {
+		if (page.url.pathname.startsWith('/dashboard/recovery')) {
+			return;
+		}
+
+		unreadSignalCount += 1;
+	}
 
 	$effect(() => {
-		dashboardContext.org = data.org;
-		dashboardContext.user = data.user;
-		dashboardContext.isConnected = data.isConnected;
+		if (!data.isConnected || page.url.pathname.startsWith('/dashboard/recovery')) {
+			unreadSignalCount = 0;
+			return;
+		}
 
-		if (!data.isConnected) {
-			dashboardContext.unreadSignalCount = 0;
+		const activeSignals = page.data.stats?.activeSignals;
+		if (typeof activeSignals === 'number' && unreadSignalCount === 0) {
+			unreadSignalCount = activeSignals;
 		}
 	});
 </script>
@@ -40,22 +38,24 @@
 {#if isOnboardingRoute}
 	{@render children()}
 {:else}
-	<SignalFeed orgId={data.org?.id ?? null} />
+	<SignalFeed orgId={data.org?.id ?? null} onSignal={handleSignal} />
 
-	<AppShell orgName={data.org?.name ?? 'ChurnPulse workspace'}>
+	<AppShell
+		orgName={data.org?.name ?? 'ChurnPulse workspace'}
+		userEmail={data.user?.email ?? null}
+		unreadCount={unreadSignalCount}
+	>
 		{#snippet headerActions()}
-			<div class="dashboard-header-actions" id="dashboard-header-actions">
-				<a class="btn btn-secondary btn-sm" href="/dashboard/sequences" id="dashboard-open-sequences">
-					Open sequences
+			<div class="dashboard-header-actions">
+				<a class="btn btn-secondary btn-sm" href="/dashboard/playbooks">
+					Email Playbooks
 				</a>
-				<a class="btn btn-primary btn-sm" href="/dashboard/signals" id="dashboard-review-signals">
-					Review live signals
+				<a class="btn btn-primary btn-sm" href="/dashboard/recovery">
+					Recovery Center
 				</a>
 			</div>
 		{/snippet}
 
 		{@render children()}
-
-		<MobileNav unreadCount={dashboardContext.unreadSignalCount} />
 	</AppShell>
 {/if}

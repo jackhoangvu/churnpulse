@@ -1,299 +1,63 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import StatusDot from '$lib/components/ui/StatusDot.svelte';
-	import { SIGNAL_CONFIGS, type SignalType } from '$lib/types';
-	import type { ActionData, PageData } from './$types';
-
-	type ToastState = {
-		key: string;
-		kind: 'success' | 'error';
-		message: string;
-	};
-
-	type BreakdownItem = {
-		type: SignalType;
-		label: string;
-		color: string;
-		count: number;
-	};
-
-	type MetricCard = {
-		label: string;
-		value: string;
-		valueClass: string;
-		delta: string;
-	};
-
-	type SparklineGeometry = {
-		points: string;
-		area: string;
-		gridLines: number[];
-	};
+	import type { PageData } from './$types';
 
 	interface Props {
 		data: PageData;
-		form?: ActionData;
 	}
+
+	let { data }: Props = $props();
 
 	const currencyFormatter = new Intl.NumberFormat('en-US', {
 		style: 'currency',
 		currency: 'USD',
 		maximumFractionDigits: 0
 	});
-	const percentFormatter = new Intl.NumberFormat('en-US', {
-		maximumFractionDigits: 0
-	});
-	const exactDateFormatter = new Intl.DateTimeFormat('en-US', {
-		month: 'short',
-		day: 'numeric',
-		hour: 'numeric',
-		minute: '2-digit'
-	});
-	const signalOrder: SignalType[] = [
-		'card_failed',
-		'disengaged',
-		'downgraded',
-		'paused',
-		'cancelled',
-		'high_mrr_risk',
-		'trial_ending'
-	];
-	const signalColors: Record<SignalType, string> = {
-		card_failed: '#FF4459',
-		disengaged: '#FFB800',
-		downgraded: '#FF8C42',
-		paused: '#4A9EFF',
-		cancelled: 'rgba(255,68,89,0.66)',
-		high_mrr_risk: '#FF0033',
-		trial_ending: '#A78BFA'
-	};
-	const errorMessages: Record<string, string> = {
-		access_denied: 'Polar connection was cancelled before authorization completed.',
-		connect_failed: 'Polar connection could not be completed. Please try again.',
-		create_org_first: 'Create your ChurnPulse workspace before connecting Polar.',
-		missing_code: 'Polar did not return an authorization code. Please retry the connection.',
-		token_exchange_failed: 'Polar authorization succeeded, but token exchange failed.'
-	};
 
-	let { data, form }: Props = $props();
-	let toast = $state<ToastState | null>(null);
-	let lastToastKey = $state('');
-
-	const nowIso = $derived(data.nowIso);
-	const stats = $derived(data.stats);
-	const connected = $derived(data.connected);
-	const recentSignals = $derived(stats?.recentSignals ?? []);
-
-	const breakdownItems = $derived.by<BreakdownItem[]>(() => {
-		if (!stats) {
-			return [];
-		}
-
-		return signalOrder.map((type) => ({
-			type,
-			label: SIGNAL_CONFIGS[type].label,
-			color: signalColors[type],
-			count: stats.countsBySignalType[type]
-		}));
-	});
-
-	const maxBreakdownCount = $derived.by(() => {
-		return Math.max(
-			1,
-			...breakdownItems.map((item) => item.count)
-		);
-	});
-
-	const sparklineGeometry = $derived.by<SparklineGeometry>(() => {
-		if (!stats || stats.sparkline.length === 0) {
-			return {
-				points: '',
-				area: '',
-				gridLines: [20, 40, 60]
-			};
+	const sparkline = $derived(data.stats?.sparkline ?? []);
+	const recentSignals = $derived(data.stats?.recentSignals ?? []);
+	const sparklinePoints = $derived.by(() => {
+		if (sparkline.length === 0) {
+			return '';
 		}
 
 		const width = 320;
-		const height = 80;
-		const paddingX = 10;
-		const paddingY = 8;
-		const innerWidth = width - paddingX * 2;
-		const innerHeight = height - paddingY * 2;
-		const maxValue = Math.max(1, ...stats.sparkline.map((point) => point.count));
-		const stepX = stats.sparkline.length > 1 ? innerWidth / (stats.sparkline.length - 1) : 0;
-		const coordinates = stats.sparkline.map((point, index) => {
-			const x = paddingX + stepX * index;
-			const ratio = point.count / maxValue;
-			const y = height - paddingY - ratio * innerHeight;
-			return { x, y };
-		});
-		const points = coordinates.map((coordinate) => `${coordinate.x},${coordinate.y}`).join(' ');
-		const baseline = height - paddingY;
-		const first = coordinates[0];
-		const last = coordinates[coordinates.length - 1];
-		const area = first
-			? `${first.x},${baseline} ${points} ${last.x},${baseline}`
-			: '';
-		const gridLines = [0.25, 0.5, 0.75].map((ratio) => height - paddingY - ratio * innerHeight);
+		const height = 84;
+		const max = Math.max(...sparkline.map((point) => point.count), 1);
 
-		return { points, area, gridLines };
+		return sparkline
+			.map((point, index) => {
+				const x = (index / Math.max(1, sparkline.length - 1)) * width;
+				const y = height - (point.count / max) * height;
+				return `${x},${y}`;
+			})
+			.join(' ');
 	});
 
-	const metricCards = $derived.by<MetricCard[]>(() => {
-		if (!stats) {
-			return [];
-		}
-
-		return [
-			{
-				label: 'At Risk MRR',
-				value: formatCurrency(stats.atRiskMrr),
-				valueClass: stats.atRiskMrr > 50_000 ? 'metric-value-danger' : '',
-				delta: formatSignedCurrency(stats.weekDeltas.atRiskMrr, 'vs previous week')
-			},
-			{
-				label: 'Recovered MRR',
-				value: formatCurrency(stats.recoveredMrr),
-				valueClass: 'metric-value-success',
-				delta: formatSignedCurrency(stats.weekDeltas.recoveredMrr, 'vs previous week')
-			},
-			{
-				label: 'Active Signals',
-				value: formatCount(stats.activeSignals),
-				valueClass: '',
-				delta: formatSignedCount(stats.weekDeltas.activeSignals, 'vs previous week')
-			},
-			{
-				label: 'Recovery Rate',
-				value: `${percentFormatter.format(stats.recoveryRate)}%`,
-				valueClass: recoveryRateClass(stats.recoveryRate),
-				delta: formatSignedPercentage(stats.weekDeltas.recoveryRate, 'pts vs previous week')
-			}
-		];
-	});
-
-	const queryToast = $derived.by<ToastState | null>(() => {
-		if (form && 'message' in form && typeof form.message === 'string' && form.message.trim()) {
-			return {
-				key: `form:${form.message}`,
-				kind: 'success',
-				message: form.message
-			};
-		}
-
-		const connectedParam = page.url.searchParams.get('connected');
-		const errorParam = page.url.searchParams.get('error');
-
-		if (connectedParam === 'true') {
-			return {
-				key: 'success:connected',
-				kind: 'success',
-				message: 'Polar connected successfully'
-			};
-		}
-
-		if (errorParam) {
-			return {
-				key: `error:${errorParam}`,
-				kind: 'error',
-				message: errorMessages[errorParam] ?? 'Something went wrong while loading the dashboard.'
-			};
-		}
-
-		return null;
-	});
-
-	$effect(() => {
-		const nextToast = queryToast;
-
-		if (!nextToast || nextToast.key === lastToastKey) {
-			return;
-		}
-
-		lastToastKey = nextToast.key;
-		toast = nextToast;
-
-		const timeout = window.setTimeout(() => {
-			if (toast?.key === nextToast.key) {
-				toast = null;
-			}
-		}, 3000);
-
-		return () => window.clearTimeout(timeout);
-	});
-
-	function formatCurrency(amountCents: number): string {
-		return currencyFormatter.format(amountCents / 100);
+	function formatCurrency(cents: number): string {
+		return currencyFormatter.format(cents / 100);
 	}
 
-	function formatCount(value: number): string {
-		return new Intl.NumberFormat('en-US').format(value);
-	}
+	function formatRelativeTime(iso: string): string {
+		const delta = Date.now() - new Date(iso).getTime();
+		const minutes = Math.floor(delta / 60_000);
+		const hours = Math.floor(delta / 3_600_000);
+		const days = Math.floor(delta / 86_400_000);
 
-	function formatSignedCurrency(diffCents: number, suffix: string): string {
-		if (diffCents === 0) {
-			return `No change ${suffix}`;
-		}
-
-		const sign = diffCents > 0 ? '+' : '-';
-		return `${sign}${formatCurrency(Math.abs(diffCents))} ${suffix}`;
-	}
-
-	function formatSignedCount(diff: number, suffix: string): string {
-		if (diff === 0) {
-			return `No change ${suffix}`;
-		}
-
-		const sign = diff > 0 ? '+' : '-';
-		return `${sign}${formatCount(Math.abs(diff))} ${suffix}`;
-	}
-
-	function formatSignedPercentage(diff: number, suffix: string): string {
-		if (diff === 0) {
-			return `No change ${suffix}`;
-		}
-
-		const sign = diff > 0 ? '+' : '-';
-		return `${sign}${percentFormatter.format(Math.abs(diff))} ${suffix}`;
-	}
-
-	function recoveryRateClass(rate: number): string {
-		if (rate > 50) {
-			return 'metric-value-success';
-		}
-
-		if (rate >= 30) {
-			return 'metric-value-warning';
-		}
-
-		return 'metric-value-danger';
-	}
-
-	function formatRelativeTime(dateIso: string): string {
-		const date = new Date(dateIso);
-		const diffMs = new Date(nowIso).getTime() - date.getTime();
-		const minute = 60 * 1000;
-		const hour = 60 * minute;
-		const day = 24 * hour;
-
-		if (diffMs < minute) {
+		if (minutes < 1) {
 			return 'Just now';
 		}
 
-		if (diffMs < hour) {
-			return `${Math.floor(diffMs / minute)}m ago`;
+		if (hours < 1) {
+			return `${minutes}m ago`;
 		}
 
-		if (diffMs < day) {
-			return `${Math.floor(diffMs / hour)}h ago`;
+		if (hours < 24) {
+			return `${hours}h ago`;
 		}
 
-		if (diffMs < 30 * day) {
-			return `${Math.floor(diffMs / day)}d ago`;
-		}
-
-		return exactDateFormatter.format(date);
+		return `${days}d ago`;
 	}
 </script>
 
@@ -301,273 +65,212 @@
 	<title>Dashboard | ChurnPulse</title>
 	<meta
 		name="description"
-		content="Monitor at-risk revenue, recovery progress, and recent churn signals across your Polar-connected ChurnPulse workspace."
+		content="Overview of revenue at risk, recovery performance, and recent churn signals across your connected ChurnPulse workspace."
 	/>
 </svelte:head>
 
-{#if !connected}
-	<section class="dashboard-page dashboard-centered">
-		<div class="dashboard-page__connect-card card card-brand">
-			<div class="dashboard-page__connect-icon" aria-hidden="true">
-				<svg viewBox="0 0 64 64" fill="none">
-					<path
-						d="M10 20h24c8 0 12 4 12 12s-4 12-12 12H10V20Zm22 18c4.7 0 7-2 7-6s-2.3-6-7-6H17v12h15Z"
-						fill="currentColor"
-					/>
-					<path
-						d="M38 20h16v6H38v18h16v6H31V20h7Z"
-						fill="currentColor"
-						opacity="0.72"
-					/>
+{#if !data.connected || !data.stats}
+	<section class="page dashboard-overview dashboard-overview--empty" id="dashboard-page">
+		<div class="card card-brand onboarding-empty-state" id="dashboard-connect-card">
+			<div class="onboarding-empty-state__hero" id="dashboard-empty-hero">
+				<div class="onboarding-empty-state__icon" id="dashboard-connect-icon" aria-hidden="true">
+				<svg
+					class="onboarding-empty-state__icon-svg"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+					id="dashboard-connect-icon-svg"
+				>
+					<path class="onboarding-empty-state__icon-path" d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"></path>
 				</svg>
+				</div>
+				<h1 class="onboarding-empty-state__title" id="dashboard-connect-title">Welcome to ChurnPulse</h1>
+				<p class="onboarding-empty-state__copy" id="dashboard-connect-copy">
+					Connect your billing platform to start detecting churn signals and automating recovery sequences.
+				</p>
 			</div>
-			<h2 class="dashboard-page__connect-title">Connect your Polar account</h2>
-			<p class="dashboard-page__connect-copy">
-				Read-only access. 60-second setup. See your at-risk customers immediately.
-			</p>
 
-			<ol class="dashboard-page__connect-steps">
-				<li class="dashboard-page__connect-step">
-					<span class="dashboard-page__connect-step-index">1</span>
-					<span>Click Connect Polar</span>
-				</li>
-				<li class="dashboard-page__connect-step">
-					<span class="dashboard-page__connect-step-index">2</span>
-					<span>Authorize Polar access</span>
-				</li>
-				<li class="dashboard-page__connect-step">
-					<span class="dashboard-page__connect-step-index">3</span>
-					<span>See signals within minutes</span>
-				</li>
-			</ol>
+			<div class="onboarding-empty-state__steps" id="dashboard-empty-steps">
+				<div class="onboarding-empty-step" id="dashboard-empty-step-1">
+					<span class="onboarding-empty-step__num" id="dashboard-empty-step-num-1">1</span>
+					<div class="onboarding-empty-step__copy" id="dashboard-empty-step-copy-1">
+						<strong class="onboarding-empty-step__title">Connect your billing platform</strong>
+						<p class="onboarding-empty-step__text">Read-only OAuth access. Takes about 60 seconds.</p>
+					</div>
+				</div>
+				<div class="onboarding-empty-step" id="dashboard-empty-step-2">
+					<span class="onboarding-empty-step__num" id="dashboard-empty-step-num-2">2</span>
+					<div class="onboarding-empty-step__copy" id="dashboard-empty-step-copy-2">
+						<strong class="onboarding-empty-step__title">ChurnPulse detects signals automatically</strong>
+						<p class="onboarding-empty-step__text">Card failures, cancellations, downgrades, pauses, and trial risk.</p>
+					</div>
+				</div>
+				<div class="onboarding-empty-step" id="dashboard-empty-step-3">
+					<span class="onboarding-empty-step__num" id="dashboard-empty-step-num-3">3</span>
+					<div class="onboarding-empty-step__copy" id="dashboard-empty-step-copy-3">
+						<strong class="onboarding-empty-step__title">Recovery emails launch automatically</strong>
+						<p class="onboarding-empty-step__text">Review the queue, intervene manually, or let sequences run.</p>
+					</div>
+				</div>
+			</div>
 
-			<a class="btn btn-primary btn-full dashboard-page__connect-button" href="/api/polar/connect">
-				Connect Polar
-			</a>
-			<p class="dashboard-page__connect-footnote">
-				We never store your Polar secret key. Access is granted through Polar OAuth.
-			</p>
+			<div class="onboarding-empty-state__actions" id="dashboard-empty-actions">
+				<a class="btn btn-primary btn-lg" href="/api/polar/connect" id="dashboard-connect-button">
+					Connect Polar
+				</a>
+				<a class="btn btn-secondary btn-sm" href="/demo" id="dashboard-demo-button">See live demo</a>
+			</div>
 		</div>
 	</section>
-{:else if stats}
-	<section class="dashboard-page">
-		<div class="dashboard-page__metrics">
-			{#each metricCards as metric (metric.label)}
-				<article class="dashboard-page__metric-card card">
-					<p class="dashboard-page__metric-label">{metric.label}</p>
-					<p
-						class={`dashboard-page__metric-value ${
-							metric.valueClass === 'metric-value-success'
-								? 'dashboard-page__metric-value--success'
-								: metric.valueClass === 'metric-value-warning'
-									? 'dashboard-page__metric-value--warning'
-									: metric.valueClass === 'metric-value-danger'
-										? 'dashboard-page__metric-value--danger'
-										: ''
-						}`.trim()}
-					>
-						{metric.value}
-					</p>
-					<p class="dashboard-page__metric-delta">{metric.delta}</p>
-				</article>
-			{/each}
+{:else}
+	<section class="page dashboard-overview" id="dashboard-page">
+		<div class="page__header" id="dashboard-header">
+			<div class="page__header-copy" id="dashboard-header-copy">
+				<p class="page-kicker" id="dashboard-kicker">Control Center</p>
+				<h1 class="page__title" id="dashboard-title">Dashboard</h1>
+				<p class="page__subtitle" id="dashboard-subtitle">
+					At-risk revenue, recoveries, and recent churn signals across the last 30 days.
+				</p>
+			</div>
+			<span class="page__header-badge" id="dashboard-header-badge">
+				{data.stats.scheduledToday} scheduled today
+			</span>
 		</div>
 
-		<div class="dashboard-page__analytics">
-			<section class="dashboard-page__panel card">
-				<div class="dashboard-page__panel-header">
-					<p class="section-label">Signal Breakdown</p>
-				</div>
+		<div class="grid-4" id="dashboard-stats">
+			<div class="stat-card" id="dashboard-stat-at-risk">
+				<p class="stat-card__label" id="dashboard-stat-at-risk-label">At-Risk MRR</p>
+				<p class="stat-card__value stat-card__value--danger" id="dashboard-stat-at-risk-value">
+					{formatCurrency(data.stats.atRiskMrr)}
+				</p>
+				<p class="stat-card__trend" id="dashboard-stat-at-risk-trend">
+					{data.stats.weekDeltas.atRiskMrr >= 0 ? '+' : '-'}{formatCurrency(Math.abs(data.stats.weekDeltas.atRiskMrr))} vs last week
+				</p>
+			</div>
+			<div class="stat-card" id="dashboard-stat-recovered">
+				<p class="stat-card__label" id="dashboard-stat-recovered-label">Recovered MRR</p>
+				<p class="stat-card__value stat-card__value--success" id="dashboard-stat-recovered-value">
+					{formatCurrency(data.stats.recoveredMrr)}
+				</p>
+				<p class="stat-card__trend stat-card__trend--up" id="dashboard-stat-recovered-trend">
+					Recovery rate {data.stats.recoveryRate}%
+				</p>
+			</div>
+			<div class="stat-card" id="dashboard-stat-active">
+				<p class="stat-card__label" id="dashboard-stat-active-label">Active Signals</p>
+				<p class="stat-card__value" id="dashboard-stat-active-value">{data.stats.activeSignals}</p>
+				<p class="stat-card__trend" id="dashboard-stat-active-trend">
+					{data.stats.totalDetected} detected in the last 30 days
+				</p>
+			</div>
+			<div class="stat-card" id="dashboard-stat-scheduled">
+				<p class="stat-card__label" id="dashboard-stat-scheduled-label">Scheduled Today</p>
+				<p class="stat-card__value stat-card__value--brand" id="dashboard-stat-scheduled-value">
+					{data.stats.scheduledToday}
+				</p>
+				<p class="stat-card__trend" id="dashboard-stat-scheduled-trend">
+					Recovery emails queued for delivery
+				</p>
+			</div>
+		</div>
 
-				<div class="dashboard-page__breakdown-list">
-					{#each breakdownItems as item (item.type)}
-						<div class="dashboard-page__breakdown-row">
-							<p class="dashboard-page__breakdown-label">{item.label}</p>
-							<div class="dashboard-page__breakdown-track">
-								<svg
-									class="dashboard-page__breakdown-track"
-									viewBox="0 0 100 6"
-									preserveAspectRatio="none"
-									aria-hidden="true"
-								>
-									<rect x="0" y="0" width="100" height="6" rx="3" fill="rgba(255,255,255,0.06)"></rect>
-									<rect
-										x="0"
-										y="0"
-										width={(item.count / maxBreakdownCount) * 100}
-										height="6"
-										rx="3"
-										fill={item.color}
-									></rect>
-								</svg>
+		<div class="grid-2" id="dashboard-panels">
+			<div class="chart-card" id="dashboard-activity-card">
+				<div class="chart-card__header" id="dashboard-activity-header">
+					<div class="chart-card__header-copy" id="dashboard-activity-copy">
+						<h2 class="chart-card__title" id="dashboard-activity-title">Signal Activity</h2>
+						<p class="chart-card__subtitle" id="dashboard-activity-subtitle">Last 7 days</p>
+					</div>
+				</div>
+				<div class="dashboard-overview__sparkline" id="dashboard-sparkline-wrap">
+					<svg class="sparkline-svg" viewBox="0 0 320 84" aria-hidden="true" id="dashboard-sparkline">
+						<polyline class="sparkline-line" points={sparklinePoints}></polyline>
+					</svg>
+				</div>
+				<div class="dashboard-overview__sparkline-labels" id="dashboard-sparkline-labels">
+					{#each sparkline as point (point.date)}
+						<span class="dashboard-overview__sparkline-label" id={`dashboard-sparkline-label-${point.date}`}>{point.label}</span>
+					{/each}
+				</div>
+			</div>
+
+			<div class="chart-card" id="dashboard-breakdown-card">
+				<div class="chart-card__header" id="dashboard-breakdown-header">
+					<div class="chart-card__header-copy" id="dashboard-breakdown-copy">
+						<h2 class="chart-card__title" id="dashboard-breakdown-title">Signal Breakdown</h2>
+						<p class="chart-card__subtitle" id="dashboard-breakdown-subtitle">By signal type</p>
+					</div>
+				</div>
+				<div class="bar-chart" id="dashboard-breakdown-chart">
+					{#each Object.entries(data.stats.countsBySignalType) as [type, count] (type)}
+						<div class="bar-chart__row dashboard-overview__breakdown-row" id={`dashboard-breakdown-row-${type}`}>
+							<span class="bar-chart__label" id={`dashboard-breakdown-label-${type}`}>{type.replaceAll('_', ' ')}</span>
+							<div class="bar-chart__track" id={`dashboard-breakdown-track-${type}`}>
+								<div
+									class="bar-chart__fill bar-chart__fill--1"
+									style={`--bar-width: ${Math.max(8, Math.round((count / Math.max(...Object.values(data.stats.countsBySignalType), 1)) * 100))}%`}
+									id={`dashboard-breakdown-fill-${type}`}
+								></div>
 							</div>
-							<p class="dashboard-page__breakdown-count">{formatCount(item.count)}</p>
+							<span class="bar-chart__value" id={`dashboard-breakdown-value-${type}`}>{count}</span>
 						</div>
 					{/each}
 				</div>
-			</section>
-
-			<section class="dashboard-page__panel card">
-				<div class="dashboard-page__panel-header">
-					<p class="section-label">7-Day Activity</p>
-				</div>
-
-				<div class="dashboard-page__sparkline">
-					<svg
-						class="dashboard-page__sparkline-svg"
-						viewBox="0 0 320 80"
-						role="img"
-						aria-label="Seven day churn signal activity"
-					>
-						<defs>
-							<linearGradient id="sparkline-fill" x1="0" x2="0" y1="0" y2="1">
-								<stop offset="0%" stop-color="rgba(0,229,255,0.15)"></stop>
-								<stop offset="100%" stop-color="rgba(0,229,255,0)"></stop>
-							</linearGradient>
-						</defs>
-
-						{#each sparklineGeometry.gridLines as y}
-							<line
-								x1="10"
-								x2="310"
-								y1={y}
-								y2={y}
-								class="dashboard-page__sparkline-grid"
-							></line>
-						{/each}
-
-						{#if sparklineGeometry.area}
-							<polygon points={sparklineGeometry.area} fill="url(#sparkline-fill)"></polygon>
-						{/if}
-
-						{#if sparklineGeometry.points}
-							<polyline
-								points={sparklineGeometry.points}
-								class="dashboard-page__sparkline-line"
-								fill="none"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							></polyline>
-						{/if}
-					</svg>
-
-					<div class="dashboard-page__sparkline-labels" aria-hidden="true">
-						{#each stats.sparkline as point (point.date)}
-							<span class="dashboard-page__sparkline-label">{point.label}</span>
-						{/each}
-					</div>
-				</div>
-			</section>
-		</div>
-
-		<section class="dashboard-page__signals">
-			<div class="dashboard-page__signals-header">
-				<p class="section-label">Recent Signals</p>
-				<a class="dashboard-page__link" href="/dashboard/sequences">View all →</a>
 			</div>
-
-			{#if recentSignals.length === 0}
-				<div class="dashboard-page__empty">
-					<svg
-						class="dashboard-page__empty-illustration"
-						viewBox="0 0 120 120"
-						fill="none"
-						aria-hidden="true"
-					>
-						<rect x="14" y="18" width="92" height="84" stroke="currentColor" opacity="0.18"></rect>
-						<path d="M30 72 48 54l12 12 28-28" stroke="currentColor" stroke-width="2"></path>
-						<circle cx="48" cy="54" r="4" fill="currentColor"></circle>
-						<circle cx="88" cy="38" r="4" fill="currentColor"></circle>
-					</svg>
-					<p class="dashboard-page__empty-title">No signals detected yet.</p>
-					<p class="dashboard-page__empty-copy">Connect Polar to start monitoring.</p>
-				</div>
-			{:else}
-				<div class="dashboard-page__table-wrap">
-					<table class="dashboard-page__table">
-						<thead>
-							<tr>
-								<th>Customer</th>
-								<th>Signal</th>
-								<th class="dashboard-page__align-right">MRR</th>
-								<th>Detected</th>
-								<th>Status</th>
-								<th class="dashboard-page__align-right">Actions</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each recentSignals as signal (signal.id)}
-								<tr>
-									<td>
-										<div class="dashboard-page__customer">
-											<p class="dashboard-page__customer-name">
-												{signal.customer_name ?? 'Polar customer'}
-											</p>
-											<p class="dashboard-page__customer-email">
-												{signal.customer_email ?? 'No email available'}
-											</p>
-										</div>
-									</td>
-									<td>
-										<Badge type={signal.signal_type} size="sm" />
-									</td>
-									<td class="dashboard-page__align-right dashboard-page__mono">
-										{formatCurrency(signal.mrr_amount)}
-									</td>
-									<td>
-										<div class="dashboard-page__detected">
-											<span>{formatRelativeTime(signal.detected_at)}</span>
-											<span class="dashboard-page__detected-exact">
-												{exactDateFormatter.format(new Date(signal.detected_at))}
-											</span>
-										</div>
-									</td>
-									<td>
-										<div class="dashboard-page__status">
-											<StatusDot status={signal.status} />
-											<span>{signal.status.replaceAll('_', ' ')}</span>
-										</div>
-									</td>
-									<td class="dashboard-page__align-right">
-										<div class="dashboard-page__actions">
-											<form method="POST" action="?/dismiss">
-												<input type="hidden" name="signalId" value={signal.id} />
-												<button class="btn btn-secondary btn-sm dashboard-page__table-button" type="submit">
-													Dismiss
-												</button>
-											</form>
-											<a
-												class="btn btn-ghost btn-sm dashboard-page__table-button"
-												href={`/dashboard/sequences?signal_type=${signal.signal_type}`}
-											>
-												View
-											</a>
-										</div>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</section>
-
-		{#if stats.totalDetected > 0}
-			<section class="dashboard-page__quick">
-				<p class="dashboard-page__quick-copy">
-					⚡ {formatCount(stats.scheduledToday)} sequence emails scheduled for today
-				</p>
-				<a class="dashboard-page__quick-link" href="/dashboard/sequences">View sequences →</a>
-			</section>
-		{/if}
-	</section>
-{/if}
-
-{#if toast}
-	<div class="dashboard-toast-stack">
-		<div class={`dashboard-toast dashboard-toast--${toast.kind}`}>
-			<div class="dashboard-toast__accent"></div>
-			<p class="dashboard-toast__message">{toast.message}</p>
 		</div>
-	</div>
+
+		<section class="table-container" id="dashboard-recent-signals">
+			<div class="recovery-table__header" id="dashboard-recent-signals-header">
+				<h2 class="recovery-table__title" id="dashboard-recent-signals-title">Recent Signals</h2>
+				<a class="btn btn-secondary btn-sm" href="/dashboard/recovery" id="dashboard-recent-signals-link">
+					Open Recovery Center
+				</a>
+			</div>
+			<div class="table-container--overflow" id="dashboard-recent-signals-scroll">
+				<table class="table" id="dashboard-recent-signals-table">
+					<thead class="table__head" id="dashboard-recent-signals-head">
+						<tr class="table__head-row" id="dashboard-recent-signals-head-row">
+							<th class="table__heading" id="dashboard-col-customer">Customer</th>
+							<th class="table__heading" id="dashboard-col-signal">Signal</th>
+							<th class="table__heading" id="dashboard-col-provider">Provider</th>
+							<th class="table__heading table__align-right" id="dashboard-col-mrr">MRR</th>
+							<th class="table__heading" id="dashboard-col-detected">Detected</th>
+							<th class="table__heading" id="dashboard-col-status">Status</th>
+						</tr>
+					</thead>
+					<tbody class="table__body" id="dashboard-recent-signals-body">
+						{#each recentSignals as signal (signal.id)}
+							<tr class="table__row" id={`dashboard-signal-row-${signal.id}`}>
+								<td class="table__cell" id={`dashboard-signal-customer-${signal.id}`}>
+									<div class="table-customer" id={`dashboard-signal-customer-copy-${signal.id}`}>
+										<div class="table-customer__name" id={`dashboard-signal-customer-name-${signal.id}`}>{signal.customer_name ?? 'Unknown customer'}</div>
+										<div class="table-customer__meta" id={`dashboard-signal-customer-email-${signal.id}`}>{signal.customer_email ?? 'No email on file'}</div>
+									</div>
+								</td>
+								<td class="table__cell" id={`dashboard-signal-type-${signal.id}`}>
+									<Badge type={signal.signal_type} size="sm" />
+								</td>
+								<td class="table__cell" id={`dashboard-signal-provider-${signal.id}`}>
+									<span class="plan-badge" id={`dashboard-signal-provider-badge-${signal.id}`}>{signal.provider}</span>
+								</td>
+								<td class="table__cell table__align-right" id={`dashboard-signal-mrr-${signal.id}`}>
+									<span class="font-mono table-mrr" id={`dashboard-signal-mrr-value-${signal.id}`}>{formatCurrency(signal.mrr_amount)}</span>
+								</td>
+								<td class="table__cell" id={`dashboard-signal-detected-${signal.id}`}>
+									<span class="text-secondary" id={`dashboard-signal-detected-value-${signal.id}`}>{formatRelativeTime(signal.detected_at)}</span>
+								</td>
+								<td class="table__cell" id={`dashboard-signal-status-${signal.id}`}>
+									<div class="dashboard-overview__status" id={`dashboard-signal-status-wrap-${signal.id}`}>
+										<StatusDot status={signal.status} />
+										<span class="dashboard-overview__status-label" id={`dashboard-signal-status-label-${signal.id}`}>{signal.status.replaceAll('_', ' ')}</span>
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	</section>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import SequenceProgress from '$lib/components/dashboard/SequenceProgress.svelte';
 	import type { SignalType } from '$lib/types';
@@ -6,6 +7,8 @@
 	type TabKey = 'pending' | 'sent' | 'failed';
 
 	let { data, form } = $props();
+	let filtering = $state(false);
+	let submittingEmailId = $state<string | null>(null);
 
 	const groupMap = $derived(
 		new Map(data.groups.map((group) => [group.signal_id, group.emails]))
@@ -72,7 +75,7 @@
 				return diffHours <= 1 ? 'Sent within the hour' : `Sent ${diffHours} hours ago`;
 			}
 
-			return diffDays <= 1 ? 'Sent yesterday' : `Sent ${diffDays} days ago`;
+			return diffDays <= 1 ? 'Sent 1 day ago' : `Sent ${diffDays} days ago`;
 		}
 
 		if (diffMs <= 0) {
@@ -143,8 +146,13 @@
 						title: 'No failed sends',
 						description:
 							'Delivery issues and sequence errors will surface here so your team can retry them quickly.'
-					}
+				}
 	);
+
+	$effect(() => {
+		data.nowIso;
+		filtering = false;
+	});
 </script>
 
 <svelte:head>
@@ -155,80 +163,72 @@
 	/>
 </svelte:head>
 
-<section class="space-y-6 px-6 py-6 md:px-8">
-	<div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-		<div class="space-y-3">
-			<p class="font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-cyan)]">
+<section class="sequence-page">
+	<div class="page-header">
+		<div class="page-header__copy">
+			<p class="page-header__kicker">
 				Retention sequences
 			</p>
-			<div>
-				<h2 class="font-mono text-3xl uppercase tracking-[0.06em] text-white">
-					Queue, review, and rescue revenue on schedule.
-				</h2>
-				<p class="mt-3 max-w-3xl text-sm leading-7 text-[var(--text-secondary)]">
-					Every scheduled email is organized by customer, signal, and sequence step so your
-					operators can intervene before a recovery path stalls.
-				</p>
-			</div>
+			<h2 class="page-header__title">Queue, review, and rescue revenue on schedule.</h2>
+			<p class="page-header__subtitle">
+				Every scheduled email is organized by customer, signal, and sequence step so your
+				operators can intervene before a recovery path stalls.
+			</p>
 		</div>
 
-		<div class="flex items-center gap-3">
-			<a
-				class="border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:border-[var(--border-accent)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
-				href="/dashboard/sequences/templates"
-			>
+		<div class="page-header__actions">
+			<a class="btn btn-secondary btn-sm" href="/dashboard/sequences/templates">
 				View templates
 			</a>
 		</div>
 	</div>
 
 	{#if form?.message}
-		<div class="border border-[var(--border-accent)] bg-[var(--accent-cyan-dim)] px-4 py-3 text-sm text-[var(--accent-cyan)]">
-			{form.message}
+		<div class="settings-notice settings-notice--success">
+			<p class="settings-muted">{form.message}</p>
 		</div>
 	{/if}
 
-	<div class="grid gap-4 xl:grid-cols-3">
-		<article class="border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-			<p class="font-mono text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+	<div class="sequence-page__stats">
+		<article class="sequence-page__stat card">
+			<p class="section-label">
 				Emails Sent Today
 			</p>
-			<p class="mt-4 font-mono text-4xl text-white">{data.stats.sentToday}</p>
-			<p class="mt-3 text-sm text-[var(--text-secondary)]">
+			<p class="sequence-page__stat-value">{data.stats.sentToday}</p>
+			<p class="settings-muted">
 				{data.stats.sentThisWeek} delivered so far this week.
 			</p>
 		</article>
 
-		<article class="border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-			<p class="font-mono text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+		<article class="sequence-page__stat card">
+			<p class="section-label">
 				Scheduled This Week
 			</p>
-			<p class="mt-4 font-mono text-4xl text-white">{data.stats.scheduledThisWeek}</p>
-			<p class="mt-3 text-sm text-[var(--text-secondary)]">
+			<p class="sequence-page__stat-value">{data.stats.scheduledThisWeek}</p>
+			<p class="settings-muted">
 				{data.stats.totalPending} pending across all active sequences.
 			</p>
 		</article>
 
-		<article class="border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-			<p class="font-mono text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+		<article class="sequence-page__stat card">
+			<p class="section-label">
 				Failed (needs attention)
 			</p>
 			<p
-				class="mt-4 font-mono text-4xl"
-				class:text-[var(--status-danger)]={data.stats.failed > 0}
-				class:text-white={data.stats.failed === 0}
+				class="sequence-page__stat-value"
+				class:sequence-page__stat-value--danger={data.stats.failed > 0}
 			>
 				{data.stats.failed}
 			</p>
-			<p class="mt-3 text-sm text-[var(--text-secondary)]">
+			<p class="settings-muted">
 				Workspace success rate: {data.stats.successRate}%.
 			</p>
 		</article>
 	</div>
 
-	<div class="flex flex-col gap-4 border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
-		<div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-			<div class="flex flex-wrap items-center gap-3">
+	<div class="sequence-page__panel card">
+		<div class="sequence-page__toolbar">
+			<div class="sequence-page__tabs">
 				<a class="tab" class:tab-active={activeTab === 'pending'} href={buildUrl('pending')}>
 					Upcoming
 					<span class="tab-count">{data.tabCounts.upcoming}</span>
@@ -243,13 +243,13 @@
 				</a>
 			</div>
 
-			<div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-				<span class="font-mono uppercase tracking-[0.18em]">{data.orgName}</span>
-				<span class="hidden md:inline">Live success rate: {data.stats.successRate}%</span>
+			<div class="sequence-page__meta">
+				<span class="section-label">{data.orgName}</span>
+				<span>Live success rate: {data.stats.successRate}%</span>
 			</div>
 		</div>
 
-		<form class="grid gap-3 lg:grid-cols-[180px_180px_160px_160px_auto_auto]" method="GET">
+		<form class="sequence-page__filter-form" method="GET" onsubmit={() => { filtering = true; }}>
 			<label class="filter-field">
 				<span class="filter-label">Status</span>
 				<select class="filter-input" name="status" value={data.filters.status}>
@@ -279,27 +279,42 @@
 				<input class="filter-input" type="date" name="to" value={data.filters.to} />
 			</label>
 
-			<button class="filter-button filter-button-primary" type="submit">Apply filters</button>
+			<button class="filter-button filter-button-primary" type="submit" disabled={filtering} aria-busy={filtering}>
+				{filtering ? 'Filtering...' : 'Apply filters'}
+			</button>
 			<a class="filter-button" href={buildUrl(activeTab)}>Reset range</a>
 		</form>
 	</div>
 
-	<section class="border border-[var(--border-default)] bg-[var(--bg-surface)]">
+	<section class="sequence-page__list">
 		{#if activeRows.length === 0}
-			<div class="flex min-h-[320px] flex-col items-center justify-center px-6 py-10 text-center">
-				<p class="font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-cyan)]">
-					{emptyState.title}
-				</p>
-				<p class="mt-4 max-w-xl text-sm leading-7 text-[var(--text-secondary)]">
-					{emptyState.description}
-				</p>
+			<div class="sequence-page__empty">
+				<div class="sequence-empty-icon" id="sequence-empty-icon" aria-hidden="true">
+					<svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" id="sequence-empty-svg">
+						{#if activeTab === 'pending'}
+							<circle cx="24" cy="24" r="20" stroke="var(--border-strong)" />
+							<path d="M24 14v10l6 6" stroke="var(--brand)" stroke-linecap="round" />
+						{:else if activeTab === 'sent'}
+							<circle cx="24" cy="24" r="20" stroke="var(--border-strong)" />
+							<path d="M16 24l6 6 10-10" stroke="var(--success)" stroke-linecap="round" stroke-linejoin="round" />
+						{:else}
+							<circle cx="24" cy="24" r="20" stroke="var(--border-strong)" />
+							<path d="M24 16v8M24 30h.01" stroke="var(--warning)" stroke-linecap="round" />
+						{/if}
+					</svg>
+				</div>
+				<h3 class="sequence-empty__title">{emptyState.title}</h3>
+				<p class="sequence-empty__desc">{emptyState.description}</p>
+				{#if activeTab === 'pending'}
+					<a class="btn btn-primary btn-sm" href="/dashboard/recovery">View at-risk customers</a>
+				{/if}
 			</div>
 		{:else}
-			<div class="divide-y divide-[var(--border-subtle)]">
+			<div class="sequence-page__groups">
 				{#each activeRows as row, index (row.id)}
 					{#if shouldRenderGroupLabel(index, activeRows, activeTab)}
-						<div class="px-5 pt-5">
-							<p class="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)]">
+						<div class="sequence-page__group-label">
+							<p class="section-label">
 								{groupHeaderLabel(
 									activeTab === 'sent'
 										? row.sent_at ?? row.created_at
@@ -310,7 +325,7 @@
 						</div>
 					{/if}
 
-					<article class="sequence-row" class:sequence-row-failed={row.status === 'failed'}>
+					<article class="sequence-row" class:sequence-row--failed={row.status === 'failed'}>
 						<div class="timeline" aria-hidden="true">
 							<div class="timeline-dot" class:timeline-dot-failed={row.status === 'failed'}></div>
 							{#if index < activeRows.length - 1}
@@ -318,11 +333,11 @@
 							{/if}
 						</div>
 
-						<div class="min-w-0 space-y-4">
-							<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px] xl:items-start">
-								<div class="min-w-0 space-y-3">
-									<div class="flex flex-wrap items-center gap-3">
-										<p class="text-sm font-semibold text-white">
+						<div class="sequence-row__body">
+							<div class="sequence-row__layout">
+								<div class="sequence-row__copy">
+									<div class="sequence-row__headline">
+										<p class="sequence-row__customer">
 											{row.customer_name ?? 'Unnamed customer'}
 										</p>
 										<Badge type={row.signal_type} size="sm" />
@@ -332,39 +347,59 @@
 										{/if}
 									</div>
 
-									<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]">
+									<div class="sequence-row__meta">
 										<span>{row.customer_email ?? row.email_to}</span>
-										<span class="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+										<span class="sequence-row__subject">
 											{truncate(row.subject_preview, 60)}
 										</span>
 									</div>
 								</div>
 
-								<div class="flex flex-col items-start gap-3 xl:items-end">
-									<p class="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+								<div class="sequence-row__aside">
+									<p class="sequence-row__time">
 										{rightSideLabel(row, activeTab)}
 									</p>
 
-									<div class="flex flex-wrap items-center gap-2">
+									<div class="sequence-page__row-actions">
 										{#if row.status === 'pending'}
-											<form method="POST">
+											<form method="POST" use:enhance={({ formData }) => {
+												submittingEmailId = String(formData.get('emailRowId') ?? '');
+												return async ({ update }) => {
+													submittingEmailId = null;
+													await update({ reset: false });
+												};
+											}}>
 												<input type="hidden" name="emailRowId" value={row.id} />
 												<input type="hidden" name="intent" value="send_now" />
-												<button class="action-button action-button-cyan" type="submit">
-													Send now
+												<button class="action-button action-button-cyan" type="submit" disabled={submittingEmailId === row.id} aria-busy={submittingEmailId === row.id}>
+													{submittingEmailId === row.id ? 'Sending...' : 'Send now'}
 												</button>
 											</form>
-											<form method="POST">
+											<form method="POST" use:enhance={({ formData }) => {
+												submittingEmailId = String(formData.get('emailRowId') ?? '');
+												return async ({ update }) => {
+													submittingEmailId = null;
+													await update({ reset: false });
+												};
+											}}>
 												<input type="hidden" name="emailRowId" value={row.id} />
 												<input type="hidden" name="intent" value="cancel" />
-												<button class="action-button" type="submit">Cancel</button>
+												<button class="action-button" type="submit" disabled={submittingEmailId === row.id} aria-busy={submittingEmailId === row.id}>
+													{submittingEmailId === row.id ? 'Saving...' : 'Cancel'}
+												</button>
 											</form>
 										{:else if row.status === 'failed'}
-											<form method="POST">
+											<form method="POST" use:enhance={({ formData }) => {
+												submittingEmailId = String(formData.get('emailRowId') ?? '');
+												return async ({ update }) => {
+													submittingEmailId = null;
+													await update({ reset: false });
+												};
+											}}>
 												<input type="hidden" name="emailRowId" value={row.id} />
 												<input type="hidden" name="intent" value="retry" />
-												<button class="action-button action-button-cyan" type="submit">
-													Retry
+												<button class="action-button action-button-cyan" type="submit" disabled={submittingEmailId === row.id} aria-busy={submittingEmailId === row.id}>
+													{submittingEmailId === row.id ? 'Retrying...' : 'Retry'}
 												</button>
 											</form>
 										{/if}
@@ -383,176 +418,3 @@
 		{/if}
 	</section>
 </section>
-
-<style>
-	.tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.6rem;
-		padding: 0.7rem 0.9rem;
-		border: 1px solid var(--border-default);
-		background: transparent;
-		color: var(--text-secondary);
-		transition:
-			border-color 160ms ease,
-			background-color 160ms ease,
-			color 160ms ease;
-	}
-
-	.tab:hover {
-		border-color: var(--border-accent);
-		background: var(--bg-elevated);
-		color: var(--text-primary);
-	}
-
-	.tab-active {
-		border-color: var(--accent-cyan);
-		background: rgba(0, 229, 255, 0.08);
-		color: white;
-	}
-
-	.tab-count {
-		padding: 0.12rem 0.38rem;
-		border: 1px solid var(--border-default);
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 11px;
-		color: var(--text-muted);
-	}
-
-	.filter-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.45rem;
-	}
-
-	.filter-label {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 11px;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-muted);
-	}
-
-	.filter-input {
-		min-height: 42px;
-		border: 1px solid var(--border-default);
-		background: var(--bg-elevated);
-		padding: 0 0.85rem;
-		color: var(--text-primary);
-	}
-
-	.filter-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 42px;
-		align-self: end;
-		border: 1px solid var(--border-default);
-		padding: 0 1rem;
-		color: var(--text-secondary);
-		transition:
-			border-color 160ms ease,
-			background-color 160ms ease,
-			color 160ms ease;
-	}
-
-	.filter-button:hover {
-		border-color: var(--border-accent);
-		background: var(--bg-elevated);
-		color: var(--text-primary);
-	}
-
-	.filter-button-primary {
-		border-color: var(--accent-cyan-border);
-		background: var(--accent-cyan-dim);
-		color: var(--accent-cyan);
-	}
-
-	.sequence-row {
-		display: grid;
-		grid-template-columns: 18px minmax(0, 1fr);
-		gap: 1rem;
-		padding: 1.15rem 1.25rem 1.25rem;
-	}
-
-	.sequence-row-failed {
-		border-left: 3px solid var(--status-danger);
-		background: linear-gradient(90deg, rgba(255, 68, 89, 0.08), transparent 22%);
-	}
-
-	.timeline {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		padding-top: 0.25rem;
-	}
-
-	.timeline-dot {
-		width: 0.65rem;
-		height: 0.65rem;
-		border-radius: 999px;
-		background: var(--accent-cyan);
-		box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.08);
-	}
-
-	.timeline-dot-failed {
-		background: var(--status-danger);
-		box-shadow: 0 0 0 3px rgba(255, 68, 89, 0.08);
-	}
-
-	.timeline-line {
-		width: 1px;
-		flex: 1;
-		margin-top: 0.55rem;
-		background: rgba(255, 255, 255, 0.12);
-	}
-
-	.step-pill,
-	.failed-pill {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.3rem 0.5rem;
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 11px;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-	}
-
-	.step-pill {
-		border: 1px solid var(--border-default);
-		color: var(--text-muted);
-	}
-
-	.failed-pill {
-		border: 1px solid rgba(255, 68, 89, 0.28);
-		background: rgba(255, 68, 89, 0.12);
-		color: var(--status-danger);
-	}
-
-	.action-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 30px;
-		border: 1px solid var(--border-default);
-		padding: 0 0.75rem;
-		font-size: 12px;
-		color: var(--text-secondary);
-		background: transparent;
-		transition:
-			border-color 160ms ease,
-			background-color 160ms ease,
-			color 160ms ease;
-	}
-
-	.action-button:hover {
-		border-color: var(--border-accent);
-		background: var(--bg-elevated);
-		color: var(--text-primary);
-	}
-
-	.action-button-cyan {
-		border-color: var(--accent-cyan-border);
-		color: var(--accent-cyan);
-	}
-</style>

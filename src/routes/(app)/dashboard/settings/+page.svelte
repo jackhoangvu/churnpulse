@@ -1,202 +1,230 @@
 <script lang="ts">
-	import { applyAction, enhance } from '$app/forms';
-	import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
-	import StatusDot from '$lib/components/ui/StatusDot.svelte';
-	import { PROVIDER_META, SIGNAL_CONFIGS, type SignalType } from '$lib/types';
-	import type { ActionData, PageData } from './$types';
-
-	type TabKey = 'account' | 'polar' | 'integrations' | 'sequences' | 'notifications';
-	type Notice = {
-		kind: 'success' | 'error';
-		message: string;
-	};
-	type WebhookResult = {
-		eventGenerated: string;
-		signalCreated: boolean;
-		sequenceScheduled: boolean;
-	};
+	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import type { ActionResult } from '@sveltejs/kit';
+	import type { PageData } from './$types';
+	import type { Provider } from '$lib/types';
+	import { toast } from '$lib/stores/toast';
+	import { jsonHighlight } from '$lib/utils/jsonHighlight';
 
 	interface Props {
 		data: PageData;
-		form?: ActionData;
 	}
 
-	let { data, form }: Props = $props();
-	let activeTab = $state<TabKey>('account');
-	let notice = $state<Notice | null>(null);
-	let pendingAction = $state<string | null>(null);
+	type ProviderFilter = 'all' | Provider;
+	type SettingsActionResult = ActionResult<{ message?: string }, Record<string, never>>;
+	type ApiKeyItem = PageData['apiKeys'][number] & { plaintext?: string };
+
+	let { data }: Props = $props();
+	let providerFilter = $state<ProviderFilter>('all');
+	let apiKeys = $state<ApiKeyItem[]>([]);
+	let webhookEvents = $state<PageData['webhookEvents']>([]);
+	let connectingProvider = $state<Provider | null>(null);
+	let generatingApiKey = $state(false);
+	let deletingApiKeyId = $state<string | null>(null);
+	let retryingEventId = $state<string | null>(null);
+	let expandedWebhookId = $state<string | null>(null);
+	let deleteConfirmId = $state<string | null>(null);
+	let revealedKeyIds = $state<Record<string, boolean>>({});
 	let disconnectConfirmation = $state('');
-	let copiedPolarId = $state(false);
-	let webhookResult = $state<WebhookResult | null>(null);
-	let orgName = $state('ChurnPulse workspace');
-	let orgNameForm = $state<HTMLFormElement | null>(null);
-	let sequencePreferences = $state<Record<SignalType, boolean>>({
-		card_failed: true,
-		disengaged: true,
-		downgraded: true,
-		paused: true,
-		cancelled: true,
-		high_mrr_risk: true,
-		trial_ending: true
-	});
-	let notifications = $state({
-		alert_email: '',
-		high_mrr_alerts_enabled: true,
-		daily_digest_enabled: false
-	});
-	let savedSequencePreferences = $state<Record<SignalType, boolean>>({
-		card_failed: true,
-		disengaged: true,
-		downgraded: true,
-		paused: true,
-		cancelled: true,
-		high_mrr_risk: true,
-		trial_ending: true
-	});
-	let savedNotifications = $state({
-		alert_email: '',
-		high_mrr_alerts_enabled: true,
-		daily_digest_enabled: false
-	});
-
-	const tabs: Array<{ key: TabKey; label: string }> = [
-		{ key: 'account', label: 'Account' },
-		{ key: 'polar', label: 'Polar' },
-		{ key: 'integrations', label: 'Integrations' },
-		{ key: 'sequences', label: 'Sequences' },
-		{ key: 'notifications', label: 'Notifications' }
-	];
-
-	const exactDateFormatter = new Intl.DateTimeFormat('en-US', {
-		month: 'short',
-		day: 'numeric',
-		year: 'numeric'
-	});
-
-	const connectedAtLabel = $derived(
-		data.polar.connectedAt ? exactDateFormatter.format(new Date(data.polar.connectedAt)) : null
-	);
-	const sequenceDirty = $derived(
-		JSON.stringify(sequencePreferences) !== JSON.stringify(savedSequencePreferences)
-	);
-	const notificationsDirty = $derived(
-		JSON.stringify(notifications) !== JSON.stringify(savedNotifications)
-	);
-	const disconnectReady = $derived(disconnectConfirmation === 'disconnect');
-	const stripeConnected = $derived(data.integrations.stripe.connected);
-	const stripeAccountId = $derived(data.integrations.stripe.accountId ?? 'Unavailable');
-	const paddleConnected = $derived(data.integrations.paddle.connected);
-	const lsConnected = $derived(data.integrations.lemonsqueezy.connected);
+	let paddleSecret = $state('');
+	let lemonSqueezySecret = $state('');
+	let alertEmail = $state('');
+	let highMrrAlertsEnabled = $state(false);
+	let dailyDigestEnabled = $state(false);
+	let alertEmailError = $state<string | null>(null);
 
 	$effect(() => {
-		orgName = data.org?.name ?? 'ChurnPulse workspace';
-		sequencePreferences = { ...data.sequencePreferences };
-		notifications = { ...data.notifications };
-		savedSequencePreferences = { ...data.sequencePreferences };
-		savedNotifications = { ...data.notifications };
-		webhookResult =
-			form && 'webhookResult' in form && form.webhookResult ? form.webhookResult : webhookResult;
-
-		if (form?.message) {
-			notice = { kind: 'success', message: form.message };
-		}
+		apiKeys = [...data.apiKeys];
+		webhookEvents = [...data.webhookEvents];
+		alertEmail = data.notifications.alert_email;
+		highMrrAlertsEnabled = data.notifications.high_mrr_alerts_enabled;
+		dailyDigestEnabled = data.notifications.daily_digest_enabled;
 	});
 
-	function truncateMiddle(value: string | null, leading = 10, trailing = 6): string {
-		if (!value) {
-			return 'Unavailable';
+	const filteredWebhookEvents = $derived.by(() => {
+		if (providerFilter === 'all') {
+			return webhookEvents;
 		}
 
-		if (value.length <= leading + trailing + 1) {
-			return value;
+		return webhookEvents.filter((event) => event.provider === providerFilter);
+	});
+
+	function formatProviderStatus(connected: boolean): string {
+		return connected ? 'Connected' : 'Not connected';
+	}
+
+	function integrationActionLabel(type: Provider): string {
+		if (type === 'polar') {
+			return 'Connect Polar';
 		}
 
-		return `${value.slice(0, leading)}…${value.slice(-trailing)}`;
+		if (type === 'stripe') {
+			return 'Connect Stripe';
+		}
+
+		if (type === 'paddle') {
+			return 'Save Paddle Secret';
+		}
+
+		return 'Save Lemon Squeezy Secret';
 	}
 
-	function setNotice(kind: Notice['kind'], message: string): void {
-		notice = { kind, message };
+	function validateAlertEmail(value: string): void {
+		alertEmail = value;
+
+		if (!value.trim()) {
+			alertEmailError = null;
+			return;
+		}
+
+		alertEmailError = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+			? null
+			: 'Enter a valid email address.';
 	}
 
-	function buildEnhanceHandler(
-		actionName: string,
-		onSuccess?: (resultData: Record<string, unknown>) => void
-	): SubmitFunction<Record<string, unknown>, Record<string, unknown>> {
+	function enhanceWithToast(successMessage?: string) {
 		return () => {
-			pendingAction = actionName;
-
-			return async ({
-				result
-			}: {
-				result: ActionResult<Record<string, unknown>, Record<string, unknown>>;
-			}) => {
-				pendingAction = null;
-
-				if (result.type === 'failure') {
-					const message =
-						result.data && typeof result.data.message === 'string'
-							? result.data.message
-							: 'The requested change could not be saved.';
-					setNotice('error', message);
+			return async ({ result }: { result: SettingsActionResult }) => {
+				if (result.type === 'success') {
+					toast.success(successMessage ?? 'Settings saved.');
+					await invalidateAll();
 					return;
 				}
 
-				if (result.type === 'success' && result.data) {
-					if (typeof result.data.message === 'string') {
-						setNotice('success', result.data.message);
-					}
-
-					onSuccess?.(result.data);
+				if (result.type === 'failure') {
+					toast.error(result.data?.message ?? 'The change could not be saved.');
 				}
-
-				await applyAction(result);
 			};
 		};
 	}
 
-	function copyPolarOrganizationId(): void {
-		if (!data.polar.organizationId) {
+	async function generateApiKey(): Promise<void> {
+		generatingApiKey = true;
+
+		try {
+			const response = await fetch('/api/keys', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({
+					label: `Server API key ${apiKeys.length + 1}`
+				})
+			});
+
+			if (!response.ok) {
+				toast.error('API key generation failed.');
+				return;
+			}
+
+			const payload = (await response.json()) as {
+				key: string;
+				api_key: {
+					id: string;
+					label: string;
+					preview: string;
+					created_at: string;
+				};
+			};
+
+			apiKeys = [
+				{
+					id: payload.api_key.id,
+					label: payload.api_key.label,
+					value: payload.api_key.preview,
+					meta: `Created ${new Intl.DateTimeFormat('en-US', {
+						month: 'short',
+						day: 'numeric',
+						hour: 'numeric',
+						minute: '2-digit'
+					}).format(new Date(payload.api_key.created_at))}`,
+					plaintext: payload.key
+				},
+				...apiKeys
+			];
+			revealedKeyIds = { ...revealedKeyIds, [payload.api_key.id]: true };
+			toast.success('API key created. The plaintext value is visible only once.');
+		} catch {
+			toast.error('API key generation failed.');
+		} finally {
+			generatingApiKey = false;
+		}
+	}
+
+	async function copyApiKey(value: string | undefined): Promise<void> {
+		if (!value) {
+			toast.warning('This key can no longer be copied in plaintext.');
 			return;
 		}
 
-		void navigator.clipboard.writeText(data.polar.organizationId).then(() => {
-			copiedPolarId = true;
-			window.setTimeout(() => {
-				copiedPolarId = false;
-			}, 1200);
-		});
-	}
-
-	function copyToClipboard(value: string): void {
-		void navigator.clipboard.writeText(value).then(() => {
-			setNotice('success', 'Copied to clipboard.');
-		});
-	}
-
-	function handleOrgNameBlur(): void {
-		if (!orgNameForm || !data.org) {
-			return;
+		try {
+			await navigator.clipboard.writeText(value);
+			toast.success('Copied to clipboard.');
+		} catch {
+			toast.error('Copy failed.');
 		}
+	}
 
-		if (orgName.trim() === data.org.name) {
-			return;
+	async function deleteApiKey(id: string): Promise<void> {
+		deletingApiKeyId = id;
+
+		try {
+			const response = await fetch(`/api/keys?id=${encodeURIComponent(id)}`, {
+				method: 'DELETE'
+			});
+
+			if (!response.ok) {
+				toast.error('API key deletion failed.');
+				return;
+			}
+
+			apiKeys = apiKeys.filter((item) => item.id !== id);
+			deleteConfirmId = null;
+			toast.success('API key deleted.');
+		} catch {
+			toast.error('API key deletion failed.');
+		} finally {
+			deletingApiKeyId = null;
 		}
-
-		orgNameForm.requestSubmit();
 	}
 
-	function toggleSequence(type: SignalType): void {
-		sequencePreferences = {
-			...sequencePreferences,
-			[type]: !sequencePreferences[type]
-		};
-	}
+	async function retryWebhookEvent(id: string): Promise<void> {
+		retryingEventId = id;
 
-	function toggleNotification(key: 'high_mrr_alerts_enabled' | 'daily_digest_enabled'): void {
-		notifications = {
-			...notifications,
-			[key]: !notifications[key]
-		};
+		try {
+			const response = await fetch('/api/webhooks/retry', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ event_id: id })
+			});
+
+			if (!response.ok) {
+				toast.error('Webhook retry failed.');
+				return;
+			}
+
+			webhookEvents = webhookEvents.map((event) =>
+				event.id === id
+					? {
+							...event,
+							result: 'processed',
+							resultLabel: 'Processed',
+							resultClass: 'webhook-event-type--succeeded',
+							dotClass: 'webhook-event-dot--succeeded',
+							errorMessage: null,
+							retryable: false
+						}
+					: event
+			);
+			toast.success('Webhook event reprocessed.');
+		} catch {
+			toast.error('Webhook retry failed.');
+		} finally {
+			retryingEventId = null;
+		}
 	}
 </script>
 
@@ -204,640 +232,431 @@
 	<title>Settings | ChurnPulse</title>
 	<meta
 		name="description"
-		content="Configure workspace settings, billing integrations, sequence preferences, and internal notifications inside ChurnPulse."
+		content="Manage integrations, notifications, API access, and provider event history for your ChurnPulse workspace."
 	/>
 </svelte:head>
 
-<section class="settings-page" id="settings-page">
-	<div class="settings-header" id="settings-header">
-		<div class="settings-header__copy" id="settings-header-copy">
-			<p class="section-kicker" id="settings-kicker">Workspace Controls</p>
-			<h1 class="settings-title" id="settings-title">Settings</h1>
+<section class="page" id="settings-page">
+	<div class="page__header" id="settings-header">
+		<div class="page__header-copy" id="settings-header-copy">
+			<p class="page-kicker" id="settings-kicker">Workspace Controls</p>
+			<h1 class="page__title" id="settings-title">Settings</h1>
+			<p class="page__subtitle" id="settings-subtitle">
+				Connect billing systems, tune notifications, and review inbound provider activity.
+			</p>
 		</div>
 	</div>
 
-	{#if notice}
-		<div class={`notice notice-${notice.kind}`} id="settings-notice">
-			<p class="notice__message" id="settings-notice-message">{notice.message}</p>
+	<section class="settings-section" id="settings-integrations">
+		<div class="settings-section__header" id="settings-integrations-header">
+			<div class="settings-section__copy" id="settings-integrations-copy">
+				<h2 class="settings-section__title" id="settings-integrations-title">Integrations</h2>
+				<p class="settings-section__desc" id="settings-integrations-desc">
+					OAuth providers connect in one click. Webhook providers store their signing secrets here.
+				</p>
+			</div>
 		</div>
-	{/if}
-
-	<div class="settings-shell" id="settings-shell">
-		<nav class="tabs" aria-label="Settings" id="settings-tabs">
-			{#each tabs as tab (tab.key)}
-				<button
-					class="tab-button"
-					class:tab-button-active={activeTab === tab.key}
-					type="button"
-					id={`settings-tab-${tab.key}`}
-					onclick={() => {
-						activeTab = tab.key;
-					}}
-				>
-					{tab.label}
-				</button>
-			{/each}
-		</nav>
-
-		<div class="tab-panel" id="settings-tab-panel">
-			{#if activeTab === 'account'}
-				<section class="panel-section" id="account-panel">
-					<div class="section-header" id="account-header">
-						<div class="section-header__copy" id="account-header-copy">
-							<p class="section-label" id="account-label">Account</p>
-							<h2 class="section-title" id="account-title">Workspace profile</h2>
-						</div>
-						<span class="plan-badge" id="account-plan-badge">Beta</span>
-					</div>
-
-					<form
-						class="field-stack"
-						method="POST"
-						action="?/updateOrgName"
-						use:enhance={buildEnhanceHandler('updateOrgName')}
-						bind:this={orgNameForm}
-						id="account-name-form"
-					>
-						<label class="field" id="account-name-field">
-							<span class="field-label" id="account-name-label">Organization name</span>
-							<input
-								class="text-input"
-								name="orgName"
-								type="text"
-								bind:value={orgName}
-								id="account-name-input"
-								onblur={handleOrgNameBlur}
-							/>
-						</label>
-						<button class="sr-only" type="submit" id="account-name-submit">
-							Save workspace name
-						</button>
-					</form>
-
-					<div class="placeholder-card" id="account-upgrade-card">
-						<div class="placeholder-header" id="account-upgrade-header">
-							<div class="placeholder-copy" id="account-upgrade-copy">
-								<p class="section-label" id="account-upgrade-label">Upgrade to paid</p>
-								<h3 class="placeholder-title" id="account-upgrade-title">$49/mo</h3>
-							</div>
-							<span class="placeholder-status" id="account-upgrade-status">Coming Soon</span>
-						</div>
-						<ul class="feature-list" id="account-upgrade-features">
-							<li class="feature-list__item" id="account-feature-priority">
-								Priority churn recovery support
-							</li>
-							<li class="feature-list__item" id="account-feature-throughput">
-								Higher scheduled email throughput
-							</li>
-							<li class="feature-list__item" id="account-feature-reporting">
-								Advanced retention reporting exports
-							</li>
-						</ul>
-					</div>
-				</section>
-			{:else if activeTab === 'polar'}
-				<section class="panel-section" id="polar-panel">
-					<div class="section-header" id="polar-header">
-						<div class="section-header__copy" id="polar-header-copy">
-							<p class="section-label" id="polar-label">Polar</p>
-							<h2 class="section-title" id="polar-title">Connection health</h2>
-						</div>
-					</div>
-
-					{#if data.polar.connected}
-						<div class="polar-card" id="polar-card">
-							<div class="polar-status" id="polar-status-block">
-								<div class="polar-status-copy" id="polar-status-copy">
-									<div class="polar-status-line" id="polar-status-line">
-										<StatusDot status="recovered" />
-										<span class="polar-status-text" id="polar-status-text">Connected</span>
-									</div>
-									<div class="polar-account" id="polar-account">
-										<span class="settings-account font-mono" id="polar-account-value">
-											{truncateMiddle(data.polar.organizationId)}
-										</span>
-										<button class="copy-button" type="button" id="polar-copy-button" onclick={copyPolarOrganizationId}>
-											{copiedPolarId ? 'Copied' : 'Copy'}
-										</button>
-									</div>
-									{#if connectedAtLabel}
-										<p class="polar-muted" id="polar-connected-at">
-											Connected on {connectedAtLabel}
-										</p>
-									{/if}
-								</div>
-							</div>
-
-							<form
-								class="inline-form"
-								method="POST"
-								action="?/testWebhook"
-								use:enhance={buildEnhanceHandler('testWebhook', (resultData) => {
-									const candidate = resultData.webhookResult;
-									if (
-										candidate &&
-										typeof candidate === 'object' &&
-										'eventGenerated' in candidate &&
-										'signalCreated' in candidate &&
-										'sequenceScheduled' in candidate
-									) {
-										webhookResult = candidate as WebhookResult;
-									}
-								})}
-								id="polar-test-webhook-form"
-							>
-								<button class="action-button action-button-cyan" type="submit" id="polar-test-webhook-button">
-									{pendingAction === 'testWebhook' ? 'Testing...' : 'Test webhook'}
-								</button>
-							</form>
-
-							{#if webhookResult}
-								<div class="webhook-result" id="polar-webhook-result">
-									<p class="webhook-result__line" id="polar-webhook-event">
-										Event: {webhookResult.eventGenerated}
-									</p>
-									<p class="webhook-result__line" id="polar-webhook-signal">
-										Signal created: {webhookResult.signalCreated ? 'Yes' : 'No'}
-									</p>
-									<p class="webhook-result__line" id="polar-webhook-sequence">
-										Sequence scheduled: {webhookResult.sequenceScheduled ? 'Yes' : 'No'}
-									</p>
-								</div>
-							{/if}
-
-							<div class="danger-zone" id="polar-danger-zone">
-								<div class="danger-copy" id="polar-danger-copy">
-									<p class="section-label" id="polar-danger-label">Disconnect Polar</p>
-									<p class="danger-text" id="polar-danger-text">
-										Type <span class="danger-inline" id="polar-danger-inline">disconnect</span>
-										to revoke access and clear saved Polar connection data from this workspace.
-									</p>
-								</div>
-
-								<form
-									class="disconnect-form"
-									method="POST"
-									action="?/disconnectPolar"
-									use:enhance={buildEnhanceHandler('disconnectPolar')}
-									id="polar-disconnect-form"
-								>
-									<input
-										class="text-input"
-										name="confirmation"
-										type="text"
-										placeholder="disconnect"
-										bind:value={disconnectConfirmation}
-										id="polar-disconnect-input"
-									/>
-									{#if disconnectReady}
-										<p class="danger-warning" id="polar-danger-warning">
-											This will stop Polar signal ingestion immediately.
-										</p>
-									{/if}
-									<button
-										class="action-button action-button-danger"
-										type="submit"
-										disabled={!disconnectReady}
-										id="polar-disconnect-button"
-									>
-										Disconnect Polar
-									</button>
-								</form>
-							</div>
-						</div>
-					{:else}
-						<div class="compact-connect-card" id="polar-connect-card">
-							<div class="compact-connect-copy" id="polar-connect-copy">
-								<p class="section-label" id="polar-connect-label">Polar connection</p>
-								<h3 class="section-title" id="polar-connect-title">
-									Connect Polar to unlock live churn monitoring
+		<div class="settings-section__body" id="settings-integrations-body">
+			{#each data.integrations as integration (integration.type)}
+				<section class="settings-provider-card" id={`settings-provider-${integration.type}`}>
+					<div class="settings-provider-card__header" id={`settings-provider-header-${integration.type}`}>
+						<div class="settings-provider-card__meta" id={`settings-provider-meta-${integration.type}`}>
+							<div
+								class="settings-provider-card__swatch"
+								id={`settings-provider-swatch-${integration.type}`}
+								style={`--provider-color: ${integration.color}`}
+								aria-hidden="true"
+							></div>
+							<div class="settings-provider-card__copy" id={`settings-provider-copy-${integration.type}`}>
+								<h3 class="settings-provider-card__title" id={`settings-provider-title-${integration.type}`}>
+									{integration.label}
 								</h3>
-								<p class="polar-muted" id="polar-connect-text">
-									Read-only OAuth access only. ChurnPulse starts classifying at-risk
-									customers as soon as the webhook connection is active.
+								<p class="settings-provider-card__desc" id={`settings-provider-desc-${integration.type}`}>
+									{integration.description}
 								</p>
 							</div>
-							<a class="action-button action-button-cyan" href="/api/polar/connect" id="polar-connect-link">
-								Connect Polar
-							</a>
 						</div>
-					{/if}
-				</section>
-			{:else if activeTab === 'integrations'}
-				<section class="panel-section" id="integrations-panel">
-					<div class="section-header" id="integrations-header">
-						<div class="section-header__copy" id="integrations-header-copy">
-							<p class="section-label" id="integrations-label">Connected billing platforms</p>
-							<h2 class="section-title" id="integrations-title">Integrations</h2>
-						</div>
-					</div>
-					<p class="polar-muted" id="integrations-intro">
-						ChurnPulse monitors your customers' billing events. Connect the platforms your
-						customers use. Each platform uses read-only or webhook-only access - we never
-						store payment credentials.
-					</p>
-
-					<div class="integrations-grid" id="integrations-grid">
-						<div class="integration-card" id="integration-polar">
-							<div class="integration-card__header" id="integration-polar-header">
-								<div class="integration-card__brand" id="integration-polar-brand">
-									<div
-										class="integration-card__dot"
-										style={`--provider-color: ${PROVIDER_META.polar.color}`}
-										aria-hidden="true"
-										id="integration-polar-dot"
-									></div>
-									<h3 class="integration-card__name" id="integration-polar-name">Polar</h3>
-									<span class="badge badge-brand integration-card__type-badge" id="integration-polar-type">
-										OAuth
-									</span>
-								</div>
-								{#if data.polar.connected}
-									<span class="badge badge-success" id="polar-status">Connected</span>
-								{:else}
-									<span class="badge badge-muted" id="polar-status">Not connected</span>
-								{/if}
-							</div>
-							<p class="integration-card__desc" id="integration-polar-desc">
-								Connect your customers' Polar workspaces to detect subscription
-								cancellations, payment failures, and churn signals in real time.
-							</p>
-							{#if data.polar.connected}
-								<div class="integration-card__meta" id="polar-meta">
-									<span class="settings-account font-mono" id="polar-account-id">
-										{truncateMiddle(data.polar.accountId)}
-									</span>
-									<form method="POST" action="?/disconnectPolar" id="polar-disconnect-inline-form">
-										<input type="hidden" name="confirmation" value="disconnect" id="polar-disconnect-hidden" />
-										<button class="action-button action-button-danger" type="submit" id="polar-disconnect-btn">
-											Disconnect
-										</button>
-									</form>
-								</div>
-							{:else}
-								<a class="action-button action-button-cyan" href="/api/polar/connect" id="polar-connect-btn">
-									Connect Polar -&gt;
-								</a>
-							{/if}
-						</div>
-
-						<div class="integration-card" id="integration-stripe">
-							<div class="integration-card__header" id="integration-stripe-header">
-								<div class="integration-card__brand" id="integration-stripe-brand">
-									<div
-										class="integration-card__dot"
-										style={`--provider-color: ${PROVIDER_META.stripe.color}`}
-										aria-hidden="true"
-										id="integration-stripe-dot"
-									></div>
-									<h3 class="integration-card__name" id="integration-stripe-name">Stripe</h3>
-									<span class="badge badge-brand integration-card__type-badge" id="integration-stripe-type">
-										OAuth
-									</span>
-								</div>
-								{#if stripeConnected}
-									<span class="badge badge-success" id="stripe-status">Connected</span>
-								{:else}
-									<span class="badge badge-muted" id="stripe-status">Not connected</span>
-								{/if}
-							</div>
-							<p class="integration-card__desc" id="integration-stripe-desc">
-								Connect your customers' Stripe accounts via read-only OAuth to monitor
-								card failures, plan downgrades, cancellations, and trial endings.
-							</p>
-							{#if !stripeConnected}
-								<a class="action-button action-button-cyan" href="/api/stripe/connect" id="stripe-connect-btn">
-									Connect Stripe -&gt;
-								</a>
-							{:else}
-								<span class="settings-account font-mono" id="stripe-account-id">
-									{truncateMiddle(stripeAccountId)}
-								</span>
-							{/if}
-						</div>
-
-						<div class="integration-card" id="integration-paddle">
-							<div class="integration-card__header" id="integration-paddle-header">
-								<div class="integration-card__brand" id="integration-paddle-brand">
-									<div
-										class="integration-card__dot"
-										style={`--provider-color: ${PROVIDER_META.paddle.color}`}
-										aria-hidden="true"
-										id="integration-paddle-dot"
-									></div>
-									<h3 class="integration-card__name" id="integration-paddle-name">Paddle</h3>
-									<span class="badge badge-muted integration-card__type-badge" id="integration-paddle-type">
-										Webhook
-									</span>
-								</div>
-								{#if paddleConnected}
-									<span class="badge badge-success" id="paddle-status">Connected</span>
-								{:else}
-									<span class="badge badge-muted" id="paddle-status">Not connected</span>
-								{/if}
-							</div>
-							<p class="integration-card__desc" id="integration-paddle-desc">
-								Point your Paddle webhook at ChurnPulse to detect subscription events.
-								Paste your Paddle webhook signing secret below.
-							</p>
-							<div class="integration-card__setup" id="paddle-setup">
-								<div class="integration-card__endpoint-row" id="paddle-endpoint-row">
-									<span class="docs-code font-mono" id="paddle-endpoint-url">
-										{data.appUrl}/api/webhooks/paddle
-									</span>
-									<button
-										class="copy-button"
-										type="button"
-										id="paddle-copy-endpoint-btn"
-										onclick={() => copyToClipboard(`${data.appUrl}/api/webhooks/paddle`)}
-									>
-										Copy URL
-									</button>
-								</div>
-								<form
-									method="POST"
-									action="?/savePaddleSecret"
-									class="integration-card__secret-form"
-									id="paddle-secret-form"
-									use:enhance={buildEnhanceHandler('savePaddleSecret')}
-								>
-									<label class="field" for="paddle-secret-input" id="paddle-secret-field">
-										<span class="field-label" id="paddle-secret-label">
-											Paddle webhook signing secret
-										</span>
-									</label>
-									<input
-										class="text-input"
-										id="paddle-secret-input"
-										name="secret"
-										type="password"
-										placeholder="pdl_ntfset_..."
-										autocomplete="off"
-									/>
-									<button class="action-button action-button-cyan" type="submit" id="paddle-save-btn">
-										Save secret
-									</button>
-								</form>
-							</div>
-						</div>
-
-						<div class="integration-card" id="integration-lemonsqueezy">
-							<div class="integration-card__header" id="integration-ls-header">
-								<div class="integration-card__brand" id="integration-ls-brand">
-									<div
-										class="integration-card__dot"
-										style={`--provider-color: ${PROVIDER_META.lemonsqueezy.color}`}
-										aria-hidden="true"
-										id="integration-ls-dot"
-									></div>
-									<h3 class="integration-card__name" id="integration-ls-name">
-										Lemon Squeezy
-									</h3>
-									<span class="badge badge-muted integration-card__type-badge" id="integration-ls-type">
-										Webhook
-									</span>
-								</div>
-								{#if lsConnected}
-									<span class="badge badge-success" id="ls-status">Connected</span>
-								{:else}
-									<span class="badge badge-muted" id="ls-status">Not connected</span>
-								{/if}
-							</div>
-							<p class="integration-card__desc" id="integration-ls-desc">
-								Point your Lemon Squeezy webhook at ChurnPulse and add your signing
-								secret. Supports subscription cancellation, payment failures, and paused
-								plans.
-							</p>
-							<div class="integration-card__setup" id="ls-setup">
-								<div class="integration-card__endpoint-row" id="ls-endpoint-row">
-									<span class="docs-code font-mono" id="ls-endpoint-url">
-										{data.appUrl}/api/webhooks/lemonsqueezy
-									</span>
-									<button
-										class="copy-button"
-										type="button"
-										id="ls-copy-endpoint-btn"
-										onclick={() => copyToClipboard(`${data.appUrl}/api/webhooks/lemonsqueezy`)}
-									>
-										Copy URL
-									</button>
-								</div>
-								<form
-									method="POST"
-									action="?/saveLemonSqueezySecret"
-									class="integration-card__secret-form"
-									id="ls-secret-form"
-									use:enhance={buildEnhanceHandler('saveLemonSqueezySecret')}
-								>
-									<label class="field" for="ls-secret-input" id="ls-secret-field">
-										<span class="field-label" id="ls-secret-label">
-											Lemon Squeezy signing secret
-										</span>
-									</label>
-									<input
-										class="text-input"
-										id="ls-secret-input"
-										name="secret"
-										type="password"
-										placeholder="Your LS signing secret"
-										autocomplete="off"
-									/>
-									<button class="action-button action-button-cyan" type="submit" id="ls-save-btn">
-										Save secret
-									</button>
-								</form>
-							</div>
-						</div>
-					</div>
-
-					<div class="info-box" id="integrations-info">
-						<p class="info-box__text" id="integrations-info-text">
-							<span class="info-box__strong" id="integrations-info-strong">
-								How to route webhooks:
+						<div class="settings-provider-card__status" id={`settings-provider-status-${integration.type}`}>
+							<span
+								class={`badge ${integration.connected ? 'badge-success' : 'badge-muted'}`}
+								id={`settings-provider-badge-${integration.type}`}
+							>
+								{formatProviderStatus(integration.connected)}
 							</span>
-							Each platform above shows a webhook URL. Paste that URL in the platform's
-							webhook settings dashboard, then enter the signing secret below it.
-							ChurnPulse verifies every incoming signature - unverified payloads are
-							silently dropped.
-						</p>
-					</div>
-				</section>
-			{:else if activeTab === 'sequences'}
-				<section class="panel-section" id="sequences-panel">
-					<div class="section-header" id="sequences-header">
-						<div class="section-header__copy" id="sequences-header-copy">
-							<p class="section-label" id="sequences-label">Sequences</p>
-							<h2 class="section-title" id="sequences-title">Signal-to-sequence coverage</h2>
+							<span class="plan-badge" id={`settings-provider-mode-${integration.type}`}>
+								{integration.connectionType}
+							</span>
 						</div>
-						{#if sequenceDirty}
-							<span class="unsaved-indicator" id="sequences-unsaved">Unsaved</span>
-						{/if}
 					</div>
 
-					<form
-						class="preferences-form"
-						method="POST"
-						action="?/updateSequencePreferences"
-						use:enhance={buildEnhanceHandler('updateSequencePreferences', () => {
-							savedSequencePreferences = { ...sequencePreferences };
-						})}
-						id="sequences-form"
-					>
-						<input type="hidden" name="preferences" value={JSON.stringify(sequencePreferences)} id="sequences-hidden-preferences" />
-
-						<div class="toggle-list" id="sequences-toggle-list">
-							{#each data.sequenceSteps as item (item.type)}
-								<div class="toggle-row" id={`sequence-toggle-${item.type}`}>
-									<div class="toggle-copy" id={`sequence-copy-${item.type}`}>
-										<p class="toggle-title" id={`sequence-title-${item.type}`}>
-											{SIGNAL_CONFIGS[item.type].label}
-										</p>
-										<p class="toggle-description" id={`sequence-description-${item.type}`}>
-											{item.description}
-										</p>
-									</div>
-									<button
-										class="toggle"
-										class:toggle-active={sequencePreferences[item.type]}
-										type="button"
-										role="switch"
-										aria-checked={sequencePreferences[item.type]}
-										aria-label={`Toggle ${SIGNAL_CONFIGS[item.type].label} sequence`}
-										id={`sequence-switch-${item.type}`}
-										onclick={() => {
-											toggleSequence(item.type);
-										}}
-									>
-										<span class="toggle-thumb" id={`sequence-thumb-${item.type}`}></span>
-									</button>
-								</div>
-							{/each}
-						</div>
-
-						<div class="info-box" id="sequences-info">
-							<p class="info-box__text" id="sequences-info-text">
-								All sequences use AI-generated personalization before send.
+					<div class="settings-provider-card__grid" id={`settings-provider-grid-${integration.type}`}>
+						<div class="webhook-url-row" id={`settings-provider-webhook-${integration.type}`}>
+							<label class="webhook-url-label" id={`settings-provider-webhook-label-${integration.type}`} for={`settings-provider-webhook-input-${integration.type}`}>
+								Webhook URL
+							</label>
+							<div class="webhook-url-input-row" id={`settings-provider-webhook-row-${integration.type}`}>
+								<input
+									class="form-input form-input--readonly"
+									id={`settings-provider-webhook-input-${integration.type}`}
+									type="text"
+									value={integration.webhookUrl}
+									readonly
+								/>
+								<a
+									class="btn btn-secondary btn-sm"
+									href={integration.docsUrl}
+									target="_blank"
+									rel="noreferrer"
+									id={`settings-provider-docs-${integration.type}`}
+								>
+									Docs
+								</a>
+							</div>
+							<p class="webhook-url-helper" id={`settings-provider-helper-${integration.type}`}>
+								{integration.connectedAt
+									? `Connected ${new Date(integration.connectedAt).toLocaleDateString('en-US', {
+											month: 'short',
+											day: 'numeric',
+											year: 'numeric'
+										})}`
+									: 'No live connection timestamp yet.'}
 							</p>
 						</div>
 
-						<div class="save-row" id="sequences-save-row">
-							<button
-								class="action-button"
-								class:action-button-unsaved={sequenceDirty}
-								class:action-button-muted={!sequenceDirty}
-								type="submit"
-								disabled={!sequenceDirty}
-								id="sequences-save-button"
-							>
-								Save sequence settings
-							</button>
+						<div class="integration-status-row" id={`settings-provider-account-${integration.type}`}>
+							<span class="integration-status-label" id={`settings-provider-account-label-${integration.type}`}>
+								Account ID
+							</span>
+							<span class="api-key-value" id={`settings-provider-account-value-${integration.type}`}>
+								{integration.accountId ?? 'Not available'}
+							</span>
 						</div>
-					</form>
-				</section>
-			{:else}
-				<section class="panel-section" id="notifications-panel">
-					<div class="section-header" id="notifications-header">
-						<div class="section-header__copy" id="notifications-header-copy">
-							<p class="section-label" id="notifications-label">Notifications</p>
-							<h2 class="section-title" id="notifications-title">Internal alert routing</h2>
+
+						<div class="integration-status-row" id={`settings-provider-secret-${integration.type}`}>
+							<span class="integration-status-label" id={`settings-provider-secret-label-${integration.type}`}>
+								Webhook secret
+							</span>
+							<span class={`badge ${integration.webhookSecretSaved ? 'badge-success' : 'badge-muted'}`} id={`settings-provider-secret-badge-${integration.type}`}>
+								{integration.webhookSecretSaved ? 'Saved' : 'Not saved'}
+							</span>
 						</div>
-						{#if notificationsDirty}
-							<span class="unsaved-indicator" id="notifications-unsaved">Unsaved</span>
+
+						{#if integration.type === 'polar'}
+							<div class="settings-provider-card__actions" id="settings-provider-actions-polar">
+								<a class="btn btn-primary" href="/api/polar/connect" id="settings-provider-connect-polar" onclick={() => (connectingProvider = 'polar')}>
+									{connectingProvider === 'polar' ? 'Connecting…' : integrationActionLabel(integration.type)}
+								</a>
+								{#if integration.connected}
+									<div class="settings-danger-zone" id="settings-danger-disconnect">
+										<div class="settings-danger-zone__header" id="settings-danger-header">
+											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" aria-hidden="true" id="settings-danger-icon">
+												<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+												<line x1="12" y1="9" x2="12" y2="13" />
+												<line x1="12" y1="17" x2="12.01" y2="17" />
+											</svg>
+											<h4 id="settings-danger-title">Danger zone</h4>
+										</div>
+										<p class="settings-danger-zone__copy" id="settings-danger-copy">
+											Disconnecting Polar stops churn detection and scheduled recovery sequences until you reconnect.
+										</p>
+										<form class="settings-provider-card__form" method="POST" action="?/disconnectPolar" id="settings-provider-form-polar" use:enhance={enhanceWithToast('Polar disconnected.')}>
+											<label class="form-group" id="settings-provider-confirm-group-polar">
+												<span class="form-label" id="settings-provider-confirm-label-polar">
+													Type <code class="settings-inline-code" id="settings-provider-confirm-code-polar">disconnect</code> to confirm
+												</span>
+												<div class="settings-danger-zone__row" id="settings-danger-row">
+													<input class="form-input form-input--danger" id="settings-provider-confirm-input-polar" name="confirmation" type="text" bind:value={disconnectConfirmation} autocomplete="off" placeholder="disconnect" pattern="disconnect" required />
+													<button class="btn btn-danger" type="submit" id="settings-provider-disconnect-polar" disabled={disconnectConfirmation !== 'disconnect'}>
+														Disconnect Polar
+													</button>
+												</div>
+											</label>
+										</form>
+									</div>
+								{/if}
+							</div>
+						{:else if integration.type === 'stripe'}
+							<div class="settings-provider-card__actions" id="settings-provider-actions-stripe">
+								<a class="btn btn-primary" href="/api/stripe/connect" id="settings-provider-connect-stripe" onclick={() => (connectingProvider = 'stripe')}>
+									{connectingProvider === 'stripe' ? 'Connecting…' : integrationActionLabel(integration.type)}
+								</a>
+							</div>
+						{:else if integration.type === 'paddle'}
+							<form class="settings-provider-card__form" method="POST" action="?/savePaddleSecret" id="settings-provider-form-paddle" use:enhance={enhanceWithToast('Paddle secret saved.')}>
+								<label class="form-group" id="settings-provider-secret-group-paddle">
+									<span class="form-label" id="settings-provider-secret-label-paddle">Paddle signing secret</span>
+									<input class="form-input" id="settings-provider-secret-input-paddle" name="secret" type="password" bind:value={paddleSecret} placeholder="pdl_live_..." autocomplete="off" />
+								</label>
+								<div class="settings-provider-card__actions" id="settings-provider-actions-paddle">
+									<button class="btn btn-primary" type="submit" id="settings-provider-submit-paddle" disabled={paddleSecret.trim().length <= 16}>
+										{integrationActionLabel(integration.type)}
+									</button>
+								</div>
+							</form>
+						{:else}
+							<form class="settings-provider-card__form" method="POST" action="?/saveLemonSqueezySecret" id="settings-provider-form-lemonsqueezy" use:enhance={enhanceWithToast('Lemon Squeezy secret saved.')}>
+								<label class="form-group" id="settings-provider-secret-group-lemonsqueezy">
+									<span class="form-label" id="settings-provider-secret-label-lemonsqueezy">Lemon Squeezy signing secret</span>
+									<input class="form-input" id="settings-provider-secret-input-lemonsqueezy" name="secret" type="password" bind:value={lemonSqueezySecret} placeholder="ls_whsec_..." autocomplete="off" />
+								</label>
+								<div class="settings-provider-card__actions" id="settings-provider-actions-lemonsqueezy">
+									<button class="btn btn-primary" type="submit" id="settings-provider-submit-lemonsqueezy" disabled={lemonSqueezySecret.trim().length <= 16}>
+										{integrationActionLabel(integration.type)}
+									</button>
+								</div>
+							</form>
 						{/if}
 					</div>
-
-					<form
-						class="field-stack"
-						method="POST"
-						action="?/updateNotificationPreferences"
-						use:enhance={buildEnhanceHandler('updateNotificationPreferences', () => {
-							savedNotifications = { ...notifications };
-						})}
-						id="notifications-form"
-					>
-						<input type="hidden" name="notifications" value={JSON.stringify(notifications)} id="notifications-hidden" />
-
-						<label class="field" id="notifications-email-field">
-							<span class="field-label" id="notifications-email-label">Alert email address</span>
-							<input
-								class="text-input"
-								type="email"
-								bind:value={notifications.alert_email}
-								id="notifications-email-input"
-								oninput={(event) => {
-									notifications = {
-										...notifications,
-										alert_email: (event.currentTarget as HTMLInputElement).value
-									};
-								}}
-							/>
-						</label>
-
-						<div class="toggle-row" id="notifications-high-mrr-row">
-							<div class="toggle-copy" id="notifications-high-mrr-copy">
-								<p class="toggle-title" id="notifications-high-mrr-title">
-									Email me when High MRR customer detected
-								</p>
-								<p class="toggle-description" id="notifications-high-mrr-description">
-									Enabled by default for immediate internal escalation.
-								</p>
-							</div>
-							<button
-								class="toggle"
-								class:toggle-active={notifications.high_mrr_alerts_enabled}
-								type="button"
-								role="switch"
-								aria-checked={notifications.high_mrr_alerts_enabled}
-								aria-label="Toggle High MRR customer alerts"
-								id="notifications-high-mrr-switch"
-								onclick={() => {
-									toggleNotification('high_mrr_alerts_enabled');
-								}}
-							>
-								<span class="toggle-thumb" id="notifications-high-mrr-thumb"></span>
-							</button>
-						</div>
-
-						<div class="toggle-row" id="notifications-digest-row">
-							<div class="toggle-copy" id="notifications-digest-copy">
-								<p class="toggle-title" id="notifications-digest-title">
-									Daily digest of signals
-								</p>
-								<p class="toggle-description" id="notifications-digest-description">
-									Sends a morning summary of yesterday's churn signals.
-								</p>
-							</div>
-							<button
-								class="toggle"
-								class:toggle-active={notifications.daily_digest_enabled}
-								type="button"
-								role="switch"
-								aria-checked={notifications.daily_digest_enabled}
-								aria-label="Toggle daily digest notifications"
-								id="notifications-digest-switch"
-								onclick={() => {
-									toggleNotification('daily_digest_enabled');
-								}}
-							>
-								<span class="toggle-thumb" id="notifications-digest-thumb"></span>
-							</button>
-						</div>
-
-						<div class="save-row" id="notifications-save-row">
-							<button
-								class="action-button"
-								class:action-button-unsaved={notificationsDirty}
-								class:action-button-muted={!notificationsDirty}
-								type="submit"
-								disabled={!notificationsDirty}
-								id="notifications-save-button"
-							>
-								Save notification settings
-							</button>
-						</div>
-					</form>
 				</section>
+			{/each}
+		</div>
+	</section>
+
+	<section class="settings-section" id="settings-api-keys">
+		<div class="settings-section__header" id="settings-api-keys-header">
+			<div class="settings-section__copy" id="settings-api-keys-copy">
+				<h2 class="settings-section__title" id="settings-api-keys-title">API Keys</h2>
+				<p class="settings-section__desc" id="settings-api-keys-desc">
+					Create server-side keys for exports, internal tooling, and secure automation.
+				</p>
+			</div>
+			<button class="btn btn-primary btn-sm" type="button" onclick={() => void generateApiKey()} aria-busy={generatingApiKey}>
+				{generatingApiKey ? 'Generating…' : 'Generate new key'}
+			</button>
+		</div>
+		<div class="settings-section__body" id="settings-api-keys-body">
+			{#if apiKeys.length === 0}
+				<div class="settings-empty-state">
+					<p class="settings-empty-state__text">No API keys have been created for this workspace yet.</p>
+				</div>
+			{:else}
+			{#each apiKeys as apiKey (apiKey.id)}
+				<div class="api-key-row" id={`api-key-row-${apiKey.id}`}>
+					<div class="api-key-copy" id={`api-key-copy-${apiKey.id}`}>
+						<p class="api-key-value" id={`api-key-label-${apiKey.id}`}>{apiKey.label}</p>
+						<p class="api-key-meta" id={`api-key-meta-${apiKey.id}`}>{apiKey.meta}</p>
+					</div>
+					<code class="settings-inline-code" id={`api-key-value-${apiKey.id}`}>
+						{revealedKeyIds[apiKey.id] && apiKey.plaintext ? apiKey.plaintext : apiKey.value}
+					</code>
+					<div class="settings-provider-card__actions">
+						<button class="btn btn-secondary btn-sm" type="button" onclick={() => (revealedKeyIds = { ...revealedKeyIds, [apiKey.id]: !revealedKeyIds[apiKey.id] })}>
+							{revealedKeyIds[apiKey.id] ? 'Hide' : 'Show'}
+						</button>
+						<button class="btn btn-secondary btn-sm" type="button" onclick={() => void copyApiKey(apiKey.plaintext)}>
+							Copy
+						</button>
+						{#if deleteConfirmId === apiKey.id}
+							<button class="btn btn-danger btn-sm" type="button" onclick={() => void deleteApiKey(apiKey.id)} aria-busy={deletingApiKeyId === apiKey.id}>
+								{deletingApiKeyId === apiKey.id ? 'Deleting…' : 'Confirm delete'}
+							</button>
+							<button class="btn btn-ghost btn-sm" type="button" onclick={() => (deleteConfirmId = null)}>
+								Cancel
+							</button>
+						{:else}
+							<button class="api-key-delete" type="button" id={`api-key-delete-${apiKey.id}`} aria-label={`Delete ${apiKey.label}`} onclick={() => (deleteConfirmId = apiKey.id)}>
+								<svg class="api-key-delete__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" id={`api-key-delete-icon-${apiKey.id}`}>
+									<path class="api-key-delete__path" d="M3 6h18" />
+									<path class="api-key-delete__path" d="M8 6V4h8v2" />
+									<path class="api-key-delete__path" d="m19 6-1 14H6L5 6" />
+								</svg>
+							</button>
+						{/if}
+					</div>
+				</div>
+			{/each}
 			{/if}
 		</div>
-	</div>
+	</section>
+
+	<section class="settings-section" id="settings-notifications">
+		<div class="settings-section__header" id="settings-notifications-header">
+			<div class="settings-section__copy" id="settings-notifications-copy">
+				<h2 class="settings-section__title" id="settings-notifications-title">Notification Preferences</h2>
+				<p class="settings-section__desc" id="settings-notifications-desc">
+					Route high-value recovery alerts to the right inbox and control operator digest email volume.
+				</p>
+			</div>
+		</div>
+		<form class="settings-section__body" method="POST" action="?/updateNotificationPreferences" id="settings-notifications-form" use:enhance={enhanceWithToast('Notification preferences saved successfully.')}>
+			<label class="form-group" id="settings-alert-email-group">
+				<span class="form-label" id="settings-alert-email-label">Alert email</span>
+				<input
+					class="form-input"
+					id="settings-alert-email-input"
+					name="alert_email"
+					type="email"
+					bind:value={alertEmail}
+					oninput={(event) => validateAlertEmail(event.currentTarget.value)}
+					placeholder="ops@yourcompany.com"
+				/>
+				{#if alertEmailError}
+					<span class="form-error">{alertEmailError}</span>
+				{/if}
+			</label>
+
+			<label class="notif-row" id="settings-notification-row-high-mrr">
+				<div class="notif-row__copy" id="settings-notification-copy-high-mrr">
+					<p class="notif-row__title" id="settings-notification-title-high-mrr">High MRR alerts</p>
+					<p class="notif-row__desc" id="settings-notification-desc-high-mrr">
+						Send immediate alerts when high-value accounts show churn risk.
+					</p>
+				</div>
+				<span class="toggle {highMrrAlertsEnabled ? 'toggle--active' : ''}" id="settings-notification-toggle-high-mrr">
+					<span class="toggle__track" aria-hidden="true">
+						<span class="toggle__thumb"></span>
+					</span>
+					<input
+						class="sr-only"
+						id="settings-notification-input-high-mrr"
+						name="high_mrr_alerts_enabled"
+						type="checkbox"
+						bind:checked={highMrrAlertsEnabled}
+						onchange={(event) => event.currentTarget.form?.requestSubmit()}
+						aria-labelledby="settings-notification-title-high-mrr"
+						aria-describedby="settings-notification-desc-high-mrr"
+					/>
+					<span class="toggle__label" id="settings-notification-label-high-mrr" aria-live="polite">
+						{highMrrAlertsEnabled ? 'Enabled' : 'Disabled'}
+					</span>
+				</span>
+			</label>
+
+			<label class="notif-row" id="settings-notification-row-digest">
+				<div class="notif-row__copy" id="settings-notification-copy-digest">
+					<p class="notif-row__title" id="settings-notification-title-digest">Daily digest</p>
+					<p class="notif-row__desc" id="settings-notification-desc-digest">
+						Receive a single daily summary of open recovery work.
+					</p>
+				</div>
+				<span class="toggle {dailyDigestEnabled ? 'toggle--active' : ''}" id="settings-notification-toggle-digest">
+					<span class="toggle__track" aria-hidden="true">
+						<span class="toggle__thumb"></span>
+					</span>
+					<input
+						class="sr-only"
+						id="settings-notification-input-digest"
+						name="daily_digest_enabled"
+						type="checkbox"
+						bind:checked={dailyDigestEnabled}
+						onchange={(event) => event.currentTarget.form?.requestSubmit()}
+						aria-labelledby="settings-notification-title-digest"
+						aria-describedby="settings-notification-desc-digest"
+					/>
+					<span class="toggle__label" id="settings-notification-label-digest" aria-live="polite">
+						{dailyDigestEnabled ? 'Enabled' : 'Disabled'}
+					</span>
+				</span>
+			</label>
+
+			<div class="settings-section__actions" id="settings-notifications-actions">
+				<button class="btn btn-primary" type="submit" id="settings-notifications-submit">
+					Save Notification Preferences
+				</button>
+			</div>
+		</form>
+	</section>
+
+	<section class="settings-section" id="settings-webhooks">
+		<div class="settings-section__header" id="settings-webhooks-header">
+			<div class="settings-section__copy" id="settings-webhooks-copy">
+				<h2 class="settings-section__title" id="settings-webhooks-title">Webhook Events</h2>
+				<p class="settings-section__desc" id="settings-webhooks-desc">
+					Recent inbound provider events. Backed by the shared <code class="settings-inline-code" id="settings-webhooks-code">provider_events</code> log.
+				</p>
+			</div>
+		</div>
+		<div class="settings-section__body" id="settings-webhooks-body">
+			<div class="filter-tabs" id="settings-webhooks-filters">
+				<button class="filter-tab" class:filter-tab--active={providerFilter === 'all'} type="button" id="settings-webhooks-filter-all" onclick={() => (providerFilter = 'all')}>
+					All
+				</button>
+				{#each ['polar', 'stripe', 'paddle', 'lemonsqueezy'] as provider (provider)}
+					<button
+						class="filter-tab"
+						class:filter-tab--active={providerFilter === provider}
+						type="button"
+						id={`settings-webhooks-filter-${provider}`}
+						onclick={() => (providerFilter = provider as ProviderFilter)}
+					>
+						{provider}
+					</button>
+				{/each}
+			</div>
+
+			<div class="settings-webhook-list" id="settings-webhook-list">
+				{#if filteredWebhookEvents.length === 0}
+					<div class="settings-empty-state" id="settings-webhooks-empty">
+						<p class="settings-empty-state__text" id="settings-webhooks-empty-text">
+							No provider events match the current filter.
+						</p>
+					</div>
+				{:else}
+					{#each filteredWebhookEvents as event (event.id)}
+						<div class="settings-webhook-entry">
+						<button class="webhook-event-row" type="button" id={`settings-webhook-event-${event.id}`} onclick={() => (expandedWebhookId = expandedWebhookId === event.id ? null : event.id)}>
+							<span class={`webhook-event-dot ${event.dotClass}`} id={`settings-webhook-dot-${event.id}`}></span>
+							<span class="plan-badge" id={`settings-webhook-provider-${event.id}`}>{event.providerLabel}</span>
+							<span class={`webhook-event-type ${event.resultClass}`} id={`settings-webhook-type-${event.id}`}>{event.eventType}</span>
+							<span class="webhook-event-id" id={`settings-webhook-id-${event.id}`}>{event.eventId}</span>
+							<span class="webhook-event-result" id={`settings-webhook-result-${event.id}`}>{event.resultLabel}</span>
+							<span class="webhook-event-time" id={`settings-webhook-time-${event.id}`}>{event.timeLabel}</span>
+						</button>
+						{#if event.retryable}
+							<div class="settings-provider-card__actions">
+								<button class="btn btn-secondary btn-sm" type="button" onclick={() => void retryWebhookEvent(event.id)} aria-busy={retryingEventId === event.id}>
+									{retryingEventId === event.id ? 'Retrying…' : 'Retry failed event'}
+								</button>
+							</div>
+						{/if}
+						{#if expandedWebhookId === event.id}
+							<pre class="docs-code"><code>{@html jsonHighlight(event.payload)}</code></pre>
+						{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</div>
+	</section>
+
+	<section class="settings-section" id="settings-audit-log">
+		<div class="settings-section__header" id="settings-audit-log-header">
+			<div class="settings-section__copy" id="settings-audit-log-copy">
+				<h2 class="settings-section__title" id="settings-audit-log-title">Audit Log</h2>
+				<p class="settings-section__desc" id="settings-audit-log-desc">
+					Workspace governance history for sensitive settings, authentication activity, and key lifecycle changes.
+				</p>
+			</div>
+			<span class="badge badge-violet" id="settings-audit-log-badge">90-day retention</span>
+		</div>
+		<div class="settings-section__body" id="settings-audit-log-body">
+			{#each data.auditLog as entry (entry.id)}
+				<div class="audit-row" id={`settings-audit-row-${entry.id}`}>
+					<div class={`audit-icon audit-icon--${entry.kind}`} id={`settings-audit-icon-${entry.id}`}>
+						<svg class="audit-icon__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" id={`settings-audit-svg-${entry.id}`}>
+							{#if entry.kind === 'created'}
+								<path class="audit-icon__path" d="M12 5v14M5 12h14" />
+							{:else if entry.kind === 'updated'}
+								<path class="audit-icon__path" d="M21 12a9 9 0 1 1-3-6.7" />
+								<path class="audit-icon__path" d="M21 3v6h-6" />
+							{:else if entry.kind === 'revoked'}
+								<path class="audit-icon__path" d="M18 6 6 18" />
+								<path class="audit-icon__path" d="m6 6 12 12" />
+							{:else}
+								<path class="audit-icon__path" d="M12 12h.01" />
+								<path class="audit-icon__path" d="M12 7v2" />
+								<path class="audit-icon__path" d="M12 15v2" />
+							{/if}
+						</svg>
+					</div>
+					<div class="audit-copy" id={`settings-audit-copy-${entry.id}`}>
+						<p class={`audit-action audit-action--${entry.kind}`} id={`settings-audit-action-${entry.id}`}>{entry.action}</p>
+						<p class="audit-actor" id={`settings-audit-actor-${entry.id}`}>{entry.actor}</p>
+					</div>
+					<span class="badge badge-muted" id={`settings-audit-locked-${entry.id}`}>Locked</span>
+					<span class="audit-time" id={`settings-audit-time-${entry.id}`}>{entry.timeLabel}</span>
+				</div>
+			{/each}
+		</div>
+	</section>
 </section>
