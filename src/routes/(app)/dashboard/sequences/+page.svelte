@@ -75,7 +75,7 @@
 				return diffHours <= 1 ? 'Sent within the hour' : `Sent ${diffHours} hours ago`;
 			}
 
-			return diffDays <= 1 ? 'Sent 1 day ago' : `Sent ${diffDays} days ago`;
+			return diffDays <= 1 ? 'Sent yesterday' : `Sent ${diffDays} days ago`;
 		}
 
 		if (diffMs <= 0) {

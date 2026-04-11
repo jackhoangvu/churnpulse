@@ -1,60 +1,6 @@
 import type { PageServerLoad } from './$types';
-import {
-	MONITORING_THRESHOLD_RULES,
-	type MonitoringThresholdKey
-} from '$lib/constants';
-import { admin } from '$lib/server/admin';
-import { resolveOrganization } from '$lib/server/organizations';
-import type { Json } from '$lib/types/supabase';
 
-type MonitoringThresholds = Partial<Record<MonitoringThresholdKey, number>>;
-
-function parseMetadata(value: Json | null): { monitoring_thresholds?: MonitoringThresholds } {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		return {};
-	}
-
-	return value as { monitoring_thresholds?: MonitoringThresholds };
-}
-
-export const load: PageServerLoad = async ({ locals }) => {
-	const org = await resolveOrganization(locals.session?.userId);
-	let thresholds: Record<MonitoringThresholdKey, (typeof MONITORING_THRESHOLD_RULES)[MonitoringThresholdKey]> = {
-		...MONITORING_THRESHOLD_RULES
-	};
-
-	if (org) {
-		const { data } = await admin
-			.from('organizations')
-			.select('metadata')
-			.eq('id', org.id)
-			.maybeSingle();
-		const metadata = parseMetadata(
-			((data as { metadata: Json | null } | null)?.metadata ?? null) as Json | null
-		);
-
-		thresholds = Object.fromEntries(
-			(Object.entries(MONITORING_THRESHOLD_RULES) as Array<
-				[
-					MonitoringThresholdKey,
-					(typeof MONITORING_THRESHOLD_RULES)[MonitoringThresholdKey]
-				]
-			>).map(([key, config]) => [
-				key,
-				{
-					...config,
-					value:
-						typeof metadata.monitoring_thresholds?.[key] === 'number'
-							? metadata.monitoring_thresholds[key]
-							: config.value
-				}
-			])
-		) as Record<
-			MonitoringThresholdKey,
-			(typeof MONITORING_THRESHOLD_RULES)[MonitoringThresholdKey]
-		>;
-	}
-
+export const load: PageServerLoad = async () => {
 	return {
 		title: 'Monitoring',
 		breadcrumb: ['ChurnPulse', 'Monitoring'],
@@ -93,6 +39,48 @@ export const load: PageServerLoad = async ({ locals }) => {
 			customersScored: 2140,
 			cancellationRate: 4.6
 		},
-		thresholds
+		thresholds: {
+			accuracyFloor: {
+				label: 'Accuracy Floor',
+				desc: 'Alert below 0.65',
+				value: 0.65,
+				min: 0.4,
+				max: 0.9,
+				step: 0.01
+			},
+			predictionAccuracyLimit: {
+				label: 'Prediction Accuracy Limit',
+				desc: 'Alert above 0.15',
+				value: 0.15,
+				min: 0.05,
+				max: 0.3,
+				step: 0.01
+			},
+			dataStabilityLimit: {
+				label: 'Data Stability Limit',
+				desc: 'Alert above 0.2',
+				value: 0.2,
+				min: 0.05,
+				max: 0.4,
+				step: 0.01
+			},
+			earlyWarningFloor: {
+				label: 'Early Warning Floor',
+				desc: 'Alert below 2x',
+				value: 2,
+				min: 1,
+				max: 5,
+				step: 0.1,
+				suffix: 'x'
+			},
+			biasAlertLimit: {
+				label: 'Bias Alert Limit',
+				desc: 'Alert above 3',
+				value: 3,
+				min: 1,
+				max: 10,
+				step: 1
+			}
+		}
 	};
 };

@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { writable } from 'svelte/store';
 	import type { PageData } from './$types';
-	import { toast } from '$lib/stores/toast';
 
 	interface Props {
 		data: PageData;
@@ -12,8 +10,7 @@
 	type ThresholdEntry = Thresholds[ThresholdKey] & { suffix?: string };
 
 	let { data }: Props = $props();
-	const thresholdStore = writable<Record<ThresholdKey, number>>({} as Record<ThresholdKey, number>);
-	let saveState = $state<'idle' | 'saving'>('idle');
+	let thresholds = $state<Record<ThresholdKey, number>>({} as Record<ThresholdKey, number>);
 
 	const metricEntries = $derived(
 		Object.entries(data.metrics) as Array<
@@ -28,13 +25,11 @@
 	);
 
 	$effect(() => {
-		thresholdStore.set(
-			Object.fromEntries(
+		thresholds = Object.fromEntries(
 			(Object.entries(data.thresholds) as Array<[ThresholdKey, ThresholdEntry]>).map(
 				([key, value]) => [key, value.value]
 			)
-			) as Record<ThresholdKey, number>
-		);
+		) as Record<ThresholdKey, number>;
 	});
 
 	function formatValue(value: number, suffix?: string): string {
@@ -50,53 +45,7 @@
 
 		return Math.max(10, Math.round((values[index] / max) * 100));
 	}
-
-	function isBreached(key: string, value: number): boolean {
-		if (key === 'accuracy') {
-			return value < $thresholdStore.accuracyFloor;
-		}
-
-		if (key === 'predictionAccuracy') {
-			return value > $thresholdStore.predictionAccuracyLimit;
-		}
-
-		if (key === 'earlyWarning') {
-			return value < $thresholdStore.earlyWarningFloor;
-		}
-
-		if (key === 'dataStability') {
-			return value > $thresholdStore.dataStabilityLimit;
-		}
-
-		return false;
-	}
-
-	async function saveThresholds(): Promise<void> {
-		saveState = 'saving';
-
-		try {
-			const response = await fetch('/api/monitoring/thresholds', {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify({
-					thresholds: $thresholdStore
-				})
-			});
-
-			if (!response.ok) {
-				toast.error('Thresholds could not be saved.');
-				return;
-			}
-
-			toast.success('Thresholds saved.');
-		} catch {
-			toast.error('Thresholds could not be saved.');
-		} finally {
-			saveState = 'idle';
-		}
-	}
+	
 </script>
 
 <svelte:head>
@@ -129,7 +78,7 @@
 
 	<div class="monitoring-metrics" id="monitoring-metrics">
 		{#each metricEntries as [key, metric] (key)}
-			<div class="monitoring-metric card" class:monitoring-metric--breach={isBreached(key, metric.value)} id={`monitoring-metric-${key}`}>
+			<div class="monitoring-metric card" id={`monitoring-metric-${key}`}>
 				<div class="monitoring-metric__header" id={`monitoring-metric-header-${key}`}>
 					<span class="monitoring-metric__name" id={`monitoring-metric-name-${key}`}>
 						{metric.label}
@@ -142,9 +91,6 @@
 				<div class="monitoring-metric__value" id={`monitoring-metric-value-${key}`}>
 					{formatValue(metric.value, metric.suffix)}
 				</div>
-				{#if isBreached(key, metric.value)}
-					<span class="badge badge-danger">Threshold breached</span>
-				{/if}
 				{#if metric.trend === 'stable'}
 					<span class="monitoring-metric__stable" id={`monitoring-metric-trend-${key}`}>stable</span>
 				{:else}
@@ -261,9 +207,6 @@
 					</svg>
 				</h3>
 			</div>
-			<button class="btn btn-primary btn-sm" type="button" onclick={() => void saveThresholds()} aria-busy={saveState === 'saving'}>
-				{saveState === 'saving' ? 'Saving…' : 'Save thresholds'}
-			</button>
 		</div>
 		<div class="monitoring-thresholds" id="monitoring-thresholds-list">
 			{#each thresholdEntries as [key, threshold] (key)}
@@ -279,13 +222,13 @@
 						min={threshold.min}
 						max={threshold.max}
 						step={threshold.step}
-						bind:value={$thresholdStore[key]}
+						bind:value={thresholds[key]}
 						aria-label={threshold.label}
 					/>
 					<div class="slider-row__value" id={`monitoring-threshold-value-${key}`}>
-						{typeof $thresholdStore[key] === 'number'
-							? $thresholdStore[key].toFixed(threshold.step < 1 ? (threshold.step < 0.1 ? 2 : 1) : 0)
-							: $thresholdStore[key]}{threshold.suffix ?? ''}
+						{typeof thresholds[key] === 'number'
+							? thresholds[key].toFixed(threshold.step < 1 ? (threshold.step < 0.1 ? 2 : 1) : 0)
+							: thresholds[key]}{threshold.suffix ?? ''}
 					</div>
 				</div>
 			{/each}

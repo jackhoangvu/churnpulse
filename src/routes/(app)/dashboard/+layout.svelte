@@ -25,12 +25,6 @@
 	$effect(() => {
 		if (!data.isConnected || page.url.pathname.startsWith('/dashboard/recovery')) {
 			unreadSignalCount = 0;
-			return;
-		}
-
-		const activeSignals = page.data.stats?.activeSignals;
-		if (typeof activeSignals === 'number' && unreadSignalCount === 0) {
-			unreadSignalCount = activeSignals;
 		}
 	});
 </script>
@@ -40,17 +34,13 @@
 {:else}
 	<SignalFeed orgId={data.org?.id ?? null} onSignal={handleSignal} />
 
-	<AppShell
-		orgName={data.org?.name ?? 'ChurnPulse workspace'}
-		userEmail={data.user?.email ?? null}
-		unreadCount={unreadSignalCount}
-	>
+	<AppShell orgName={data.org?.name ?? 'ChurnPulse workspace'} unreadCount={unreadSignalCount}>
 		{#snippet headerActions()}
-			<div class="dashboard-header-actions">
-				<a class="btn btn-secondary btn-sm" href="/dashboard/playbooks">
+			<div class="dashboard-header-actions" id="dashboard-header-actions">
+				<a class="btn btn-secondary btn-sm" href="/dashboard/playbooks" id="header-playbooks">
 					Email Playbooks
 				</a>
-				<a class="btn btn-primary btn-sm" href="/dashboard/recovery">
+				<a class="btn btn-primary btn-sm" href="/dashboard/recovery" id="header-recovery">
 					Recovery Center
 				</a>
 			</div>

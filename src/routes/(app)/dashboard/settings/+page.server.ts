@@ -20,15 +20,6 @@ type NotificationPreferences = {
 type OrgMetadata = {
 	notifications?: Partial<NotificationPreferences>;
 	polar_connected_at?: string;
-	api_keys?: StoredApiKey[];
-};
-
-type StoredApiKey = {
-	id: string;
-	label: string;
-	hash: string;
-	preview: string;
-	created_at: string;
 };
 
 type IntegrationCard = {
@@ -56,9 +47,6 @@ type WebhookEventView = {
 	resultClass: 'webhook-event-type--succeeded' | 'webhook-event-type--failed' | 'webhook-event-type--updated';
 	dotClass: 'webhook-event-dot--succeeded' | 'webhook-event-dot--failed' | 'webhook-event-dot--updated';
 	timeLabel: string;
-	payload: Json;
-	errorMessage: string | null;
-	retryable: boolean;
 };
 
 type AuditEntry = {
@@ -208,10 +196,7 @@ function toWebhookEventView(row: ProviderEventRow): WebhookEventView {
 		resultLabel,
 		resultClass,
 		dotClass,
-		timeLabel: formatEventTime(row.created_at),
-		payload: row.payload,
-		errorMessage: row.error_message,
-		retryable: Boolean(row.error_message)
+		timeLabel: formatEventTime(row.created_at)
 	};
 }
 
@@ -229,10 +214,7 @@ function buildFallbackWebhookEvents(): WebhookEventView[] {
 			resultLabel: 'Processed',
 			resultClass: 'webhook-event-type--succeeded',
 			dotClass: 'webhook-event-dot--succeeded',
-			timeLabel: formatEventTime(now.toISOString()),
-			payload: { provider: 'polar', demo: true },
-			errorMessage: null,
-			retryable: false
+			timeLabel: formatEventTime(now.toISOString())
 		},
 		{
 			id: 'fallback-stripe',
@@ -244,10 +226,7 @@ function buildFallbackWebhookEvents(): WebhookEventView[] {
 			resultLabel: 'Pending',
 			resultClass: 'webhook-event-type--updated',
 			dotClass: 'webhook-event-dot--updated',
-			timeLabel: formatEventTime(new Date(now.getTime() - 3_600_000).toISOString()),
-			payload: { provider: 'stripe', demo: true },
-			errorMessage: null,
-			retryable: false
+			timeLabel: formatEventTime(new Date(now.getTime() - 3_600_000).toISOString())
 		},
 		{
 			id: 'fallback-paddle',
@@ -259,45 +238,40 @@ function buildFallbackWebhookEvents(): WebhookEventView[] {
 			resultLabel: 'Failed',
 			resultClass: 'webhook-event-type--failed',
 			dotClass: 'webhook-event-dot--failed',
-			timeLabel: formatEventTime(new Date(now.getTime() - 7_200_000).toISOString()),
-			payload: { provider: 'paddle', demo: true },
-			errorMessage: 'Signature mismatch',
-			retryable: true
+			timeLabel: formatEventTime(new Date(now.getTime() - 7_200_000).toISOString())
 		}
 	];
 }
 
 function buildAuditLog(): AuditEntry[] {
-	const now = Date.now();
-
 	return [
 		{
 			id: 'audit-created',
 			kind: 'created',
 			action: 'Workspace created',
 			actor: 'Owner account',
-			timeLabel: formatEventTime(new Date(now).toISOString())
+			timeLabel: 'Today'
 		},
 		{
 			id: 'audit-updated',
 			kind: 'updated',
 			action: 'Integration preferences updated',
 			actor: 'Owner account',
-			timeLabel: formatEventTime(new Date(now - 86_400_000).toISOString())
+			timeLabel: 'Yesterday'
 		},
 		{
 			id: 'audit-login',
 			kind: 'login',
 			action: 'Sensitive settings viewed',
 			actor: 'Operations admin',
-			timeLabel: formatEventTime(new Date(now - 172_800_000).toISOString())
+			timeLabel: '2 days ago'
 		},
 		{
 			id: 'audit-revoked',
 			kind: 'revoked',
 			action: 'API key revoked',
 			actor: 'Security policy',
-			timeLabel: formatEventTime(new Date(now - 604_800_000).toISOString())
+			timeLabel: 'Last week'
 		}
 	];
 }
@@ -334,12 +308,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 				}
 			: null,
 		integrations: buildIntegrationCards(org),
-		apiKeys: (metadata.api_keys ?? []).map((apiKey) => ({
-			id: apiKey.id,
-			label: apiKey.label,
-			value: apiKey.preview,
-			meta: `Created ${formatEventTime(apiKey.created_at)}`
-		})),
+		apiKeys: [
+			{
+				id: 'api-preview',
+				label: 'Server API key',
+				value: 'cp_live_••••••••••••',
+				meta: 'Read-only preview. Self-serve key creation ships next.'
+			}
+		],
 		notifications: mergeNotifications(metadata),
 		webhookEvents,
 		auditLog: buildAuditLog()

@@ -1,11 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
 	import type { ActionResult } from '@sveltejs/kit';
 	import type { PageData } from './$types';
 	import type { Provider } from '$lib/types';
-	import { toast } from '$lib/stores/toast';
-	import { jsonHighlight } from '$lib/utils/jsonHighlight';
 
 	interface Props {
 		data: PageData;
@@ -13,41 +10,18 @@
 
 	type ProviderFilter = 'all' | Provider;
 	type SettingsActionResult = ActionResult<{ message?: string }, Record<string, never>>;
-	type ApiKeyItem = PageData['apiKeys'][number] & { plaintext?: string };
 
 	let { data }: Props = $props();
 	let providerFilter = $state<ProviderFilter>('all');
-	let apiKeys = $state<ApiKeyItem[]>([]);
-	let webhookEvents = $state<PageData['webhookEvents']>([]);
-	let connectingProvider = $state<Provider | null>(null);
-	let generatingApiKey = $state(false);
-	let deletingApiKeyId = $state<string | null>(null);
-	let retryingEventId = $state<string | null>(null);
-	let expandedWebhookId = $state<string | null>(null);
-	let deleteConfirmId = $state<string | null>(null);
-	let revealedKeyIds = $state<Record<string, boolean>>({});
-	let disconnectConfirmation = $state('');
-	let paddleSecret = $state('');
-	let lemonSqueezySecret = $state('');
-	let alertEmail = $state('');
-	let highMrrAlertsEnabled = $state(false);
-	let dailyDigestEnabled = $state(false);
-	let alertEmailError = $state<string | null>(null);
-
-	$effect(() => {
-		apiKeys = [...data.apiKeys];
-		webhookEvents = [...data.webhookEvents];
-		alertEmail = data.notifications.alert_email;
-		highMrrAlertsEnabled = data.notifications.high_mrr_alerts_enabled;
-		dailyDigestEnabled = data.notifications.daily_digest_enabled;
-	});
+	let toastMessage = $state<string | null>(null);
+	let toastType = $state<'success' | 'error'>('success');
 
 	const filteredWebhookEvents = $derived.by(() => {
 		if (providerFilter === 'all') {
-			return webhookEvents;
+			return data.webhookEvents;
 		}
 
-		return webhookEvents.filter((event) => event.provider === providerFilter);
+		return data.webhookEvents.filter((event) => event.provider === providerFilter);
 	});
 
 	function formatProviderStatus(connected: boolean): string {
@@ -70,161 +44,27 @@
 		return 'Save Lemon Squeezy Secret';
 	}
 
-	function validateAlertEmail(value: string): void {
-		alertEmail = value;
-
-		if (!value.trim()) {
-			alertEmailError = null;
-			return;
-		}
-
-		alertEmailError = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
-			? null
-			: 'Enter a valid email address.';
+	function showToast(message: string, type: 'success' | 'error' = 'success'): void {
+		toastMessage = message;
+		toastType = type;
+		window.setTimeout(() => {
+			toastMessage = null;
+		}, 4000);
 	}
 
 	function enhanceWithToast(successMessage?: string) {
 		return () => {
 			return async ({ result }: { result: SettingsActionResult }) => {
 				if (result.type === 'success') {
-					toast.success(successMessage ?? 'Settings saved.');
-					await invalidateAll();
+					showToast(successMessage ?? 'Settings saved.', 'success');
 					return;
 				}
 
 				if (result.type === 'failure') {
-					toast.error(result.data?.message ?? 'The change could not be saved.');
+					showToast(result.data?.message ?? 'The change could not be saved.', 'error');
 				}
 			};
 		};
-	}
-
-	async function generateApiKey(): Promise<void> {
-		generatingApiKey = true;
-
-		try {
-			const response = await fetch('/api/keys', {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify({
-					label: `Server API key ${apiKeys.length + 1}`
-				})
-			});
-
-			if (!response.ok) {
-				toast.error('API key generation failed.');
-				return;
-			}
-
-			const payload = (await response.json()) as {
-				key: string;
-				api_key: {
-					id: string;
-					label: string;
-					preview: string;
-					created_at: string;
-				};
-			};
-
-			apiKeys = [
-				{
-					id: payload.api_key.id,
-					label: payload.api_key.label,
-					value: payload.api_key.preview,
-					meta: `Created ${new Intl.DateTimeFormat('en-US', {
-						month: 'short',
-						day: 'numeric',
-						hour: 'numeric',
-						minute: '2-digit'
-					}).format(new Date(payload.api_key.created_at))}`,
-					plaintext: payload.key
-				},
-				...apiKeys
-			];
-			revealedKeyIds = { ...revealedKeyIds, [payload.api_key.id]: true };
-			toast.success('API key created. The plaintext value is visible only once.');
-		} catch {
-			toast.error('API key generation failed.');
-		} finally {
-			generatingApiKey = false;
-		}
-	}
-
-	async function copyApiKey(value: string | undefined): Promise<void> {
-		if (!value) {
-			toast.warning('This key can no longer be copied in plaintext.');
-			return;
-		}
-
-		try {
-			await navigator.clipboard.writeText(value);
-			toast.success('Copied to clipboard.');
-		} catch {
-			toast.error('Copy failed.');
-		}
-	}
-
-	async function deleteApiKey(id: string): Promise<void> {
-		deletingApiKeyId = id;
-
-		try {
-			const response = await fetch(`/api/keys?id=${encodeURIComponent(id)}`, {
-				method: 'DELETE'
-			});
-
-			if (!response.ok) {
-				toast.error('API key deletion failed.');
-				return;
-			}
-
-			apiKeys = apiKeys.filter((item) => item.id !== id);
-			deleteConfirmId = null;
-			toast.success('API key deleted.');
-		} catch {
-			toast.error('API key deletion failed.');
-		} finally {
-			deletingApiKeyId = null;
-		}
-	}
-
-	async function retryWebhookEvent(id: string): Promise<void> {
-		retryingEventId = id;
-
-		try {
-			const response = await fetch('/api/webhooks/retry', {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify({ event_id: id })
-			});
-
-			if (!response.ok) {
-				toast.error('Webhook retry failed.');
-				return;
-			}
-
-			webhookEvents = webhookEvents.map((event) =>
-				event.id === id
-					? {
-							...event,
-							result: 'processed',
-							resultLabel: 'Processed',
-							resultClass: 'webhook-event-type--succeeded',
-							dotClass: 'webhook-event-dot--succeeded',
-							errorMessage: null,
-							retryable: false
-						}
-					: event
-			);
-			toast.success('Webhook event reprocessed.');
-		} catch {
-			toast.error('Webhook retry failed.');
-		} finally {
-			retryingEventId = null;
-		}
 	}
 </script>
 
@@ -343,8 +183,8 @@
 
 						{#if integration.type === 'polar'}
 							<div class="settings-provider-card__actions" id="settings-provider-actions-polar">
-								<a class="btn btn-primary" href="/api/polar/connect" id="settings-provider-connect-polar" onclick={() => (connectingProvider = 'polar')}>
-									{connectingProvider === 'polar' ? 'Connecting…' : integrationActionLabel(integration.type)}
+								<a class="btn btn-primary" href="/api/polar/connect" id="settings-provider-connect-polar">
+									{integrationActionLabel(integration.type)}
 								</a>
 								{#if integration.connected}
 									<div class="settings-danger-zone" id="settings-danger-disconnect">
@@ -365,8 +205,8 @@
 													Type <code class="settings-inline-code" id="settings-provider-confirm-code-polar">disconnect</code> to confirm
 												</span>
 												<div class="settings-danger-zone__row" id="settings-danger-row">
-													<input class="form-input form-input--danger" id="settings-provider-confirm-input-polar" name="confirmation" type="text" bind:value={disconnectConfirmation} autocomplete="off" placeholder="disconnect" pattern="disconnect" required />
-													<button class="btn btn-danger" type="submit" id="settings-provider-disconnect-polar" disabled={disconnectConfirmation !== 'disconnect'}>
+													<input class="form-input form-input--danger" id="settings-provider-confirm-input-polar" name="confirmation" type="text" autocomplete="off" placeholder="disconnect" pattern="disconnect" required />
+													<button class="btn btn-danger" type="submit" id="settings-provider-disconnect-polar">
 														Disconnect Polar
 													</button>
 												</div>
@@ -377,18 +217,18 @@
 							</div>
 						{:else if integration.type === 'stripe'}
 							<div class="settings-provider-card__actions" id="settings-provider-actions-stripe">
-								<a class="btn btn-primary" href="/api/stripe/connect" id="settings-provider-connect-stripe" onclick={() => (connectingProvider = 'stripe')}>
-									{connectingProvider === 'stripe' ? 'Connecting…' : integrationActionLabel(integration.type)}
+								<a class="btn btn-primary" href="/api/stripe/connect" id="settings-provider-connect-stripe">
+									{integrationActionLabel(integration.type)}
 								</a>
 							</div>
 						{:else if integration.type === 'paddle'}
 							<form class="settings-provider-card__form" method="POST" action="?/savePaddleSecret" id="settings-provider-form-paddle" use:enhance={enhanceWithToast('Paddle secret saved.')}>
 								<label class="form-group" id="settings-provider-secret-group-paddle">
 									<span class="form-label" id="settings-provider-secret-label-paddle">Paddle signing secret</span>
-									<input class="form-input" id="settings-provider-secret-input-paddle" name="secret" type="password" bind:value={paddleSecret} placeholder="pdl_live_..." autocomplete="off" />
+									<input class="form-input" id="settings-provider-secret-input-paddle" name="secret" type="password" placeholder="pdl_live_..." autocomplete="off" />
 								</label>
 								<div class="settings-provider-card__actions" id="settings-provider-actions-paddle">
-									<button class="btn btn-primary" type="submit" id="settings-provider-submit-paddle" disabled={paddleSecret.trim().length <= 16}>
+									<button class="btn btn-primary" type="submit" id="settings-provider-submit-paddle">
 										{integrationActionLabel(integration.type)}
 									</button>
 								</div>
@@ -397,10 +237,10 @@
 							<form class="settings-provider-card__form" method="POST" action="?/saveLemonSqueezySecret" id="settings-provider-form-lemonsqueezy" use:enhance={enhanceWithToast('Lemon Squeezy secret saved.')}>
 								<label class="form-group" id="settings-provider-secret-group-lemonsqueezy">
 									<span class="form-label" id="settings-provider-secret-label-lemonsqueezy">Lemon Squeezy signing secret</span>
-									<input class="form-input" id="settings-provider-secret-input-lemonsqueezy" name="secret" type="password" bind:value={lemonSqueezySecret} placeholder="ls_whsec_..." autocomplete="off" />
+									<input class="form-input" id="settings-provider-secret-input-lemonsqueezy" name="secret" type="password" placeholder="ls_whsec_..." autocomplete="off" />
 								</label>
 								<div class="settings-provider-card__actions" id="settings-provider-actions-lemonsqueezy">
-									<button class="btn btn-primary" type="submit" id="settings-provider-submit-lemonsqueezy" disabled={lemonSqueezySecret.trim().length <= 16}>
+									<button class="btn btn-primary" type="submit" id="settings-provider-submit-lemonsqueezy">
 										{integrationActionLabel(integration.type)}
 									</button>
 								</div>
@@ -417,55 +257,27 @@
 			<div class="settings-section__copy" id="settings-api-keys-copy">
 				<h2 class="settings-section__title" id="settings-api-keys-title">API Keys</h2>
 				<p class="settings-section__desc" id="settings-api-keys-desc">
-					Create server-side keys for exports, internal tooling, and secure automation.
+					Server-side automation keys will be self-serve. The preview below shows the expected format.
 				</p>
 			</div>
-			<button class="btn btn-primary btn-sm" type="button" onclick={() => void generateApiKey()} aria-busy={generatingApiKey}>
-				{generatingApiKey ? 'Generating…' : 'Generate new key'}
-			</button>
 		</div>
 		<div class="settings-section__body" id="settings-api-keys-body">
-			{#if apiKeys.length === 0}
-				<div class="settings-empty-state">
-					<p class="settings-empty-state__text">No API keys have been created for this workspace yet.</p>
-				</div>
-			{:else}
-			{#each apiKeys as apiKey (apiKey.id)}
+			{#each data.apiKeys as apiKey (apiKey.id)}
 				<div class="api-key-row" id={`api-key-row-${apiKey.id}`}>
 					<div class="api-key-copy" id={`api-key-copy-${apiKey.id}`}>
 						<p class="api-key-value" id={`api-key-label-${apiKey.id}`}>{apiKey.label}</p>
 						<p class="api-key-meta" id={`api-key-meta-${apiKey.id}`}>{apiKey.meta}</p>
 					</div>
-					<code class="settings-inline-code" id={`api-key-value-${apiKey.id}`}>
-						{revealedKeyIds[apiKey.id] && apiKey.plaintext ? apiKey.plaintext : apiKey.value}
-					</code>
-					<div class="settings-provider-card__actions">
-						<button class="btn btn-secondary btn-sm" type="button" onclick={() => (revealedKeyIds = { ...revealedKeyIds, [apiKey.id]: !revealedKeyIds[apiKey.id] })}>
-							{revealedKeyIds[apiKey.id] ? 'Hide' : 'Show'}
-						</button>
-						<button class="btn btn-secondary btn-sm" type="button" onclick={() => void copyApiKey(apiKey.plaintext)}>
-							Copy
-						</button>
-						{#if deleteConfirmId === apiKey.id}
-							<button class="btn btn-danger btn-sm" type="button" onclick={() => void deleteApiKey(apiKey.id)} aria-busy={deletingApiKeyId === apiKey.id}>
-								{deletingApiKeyId === apiKey.id ? 'Deleting…' : 'Confirm delete'}
-							</button>
-							<button class="btn btn-ghost btn-sm" type="button" onclick={() => (deleteConfirmId = null)}>
-								Cancel
-							</button>
-						{:else}
-							<button class="api-key-delete" type="button" id={`api-key-delete-${apiKey.id}`} aria-label={`Delete ${apiKey.label}`} onclick={() => (deleteConfirmId = apiKey.id)}>
-								<svg class="api-key-delete__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" id={`api-key-delete-icon-${apiKey.id}`}>
-									<path class="api-key-delete__path" d="M3 6h18" />
-									<path class="api-key-delete__path" d="M8 6V4h8v2" />
-									<path class="api-key-delete__path" d="m19 6-1 14H6L5 6" />
-								</svg>
-							</button>
-						{/if}
-					</div>
+					<code class="settings-inline-code" id={`api-key-value-${apiKey.id}`}>{apiKey.value}</code>
+					<button class="api-key-delete" type="button" id={`api-key-delete-${apiKey.id}`} aria-label={`Delete ${apiKey.label}`}>
+						<svg class="api-key-delete__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" id={`api-key-delete-icon-${apiKey.id}`}>
+							<path class="api-key-delete__path" d="M3 6h18" />
+							<path class="api-key-delete__path" d="M8 6V4h8v2" />
+							<path class="api-key-delete__path" d="m19 6-1 14H6L5 6" />
+						</svg>
+					</button>
 				</div>
 			{/each}
-			{/if}
 		</div>
 	</section>
 
@@ -486,13 +298,9 @@
 					id="settings-alert-email-input"
 					name="alert_email"
 					type="email"
-					bind:value={alertEmail}
-					oninput={(event) => validateAlertEmail(event.currentTarget.value)}
+					value={data.notifications.alert_email}
 					placeholder="ops@yourcompany.com"
 				/>
-				{#if alertEmailError}
-					<span class="form-error">{alertEmailError}</span>
-				{/if}
 			</label>
 
 			<label class="notif-row" id="settings-notification-row-high-mrr">
@@ -502,7 +310,7 @@
 						Send immediate alerts when high-value accounts show churn risk.
 					</p>
 				</div>
-				<span class="toggle {highMrrAlertsEnabled ? 'toggle--active' : ''}" id="settings-notification-toggle-high-mrr">
+				<span class="toggle {data.notifications.high_mrr_alerts_enabled ? 'toggle--active' : ''}" id="settings-notification-toggle-high-mrr">
 					<span class="toggle__track" aria-hidden="true">
 						<span class="toggle__thumb"></span>
 					</span>
@@ -511,13 +319,12 @@
 						id="settings-notification-input-high-mrr"
 						name="high_mrr_alerts_enabled"
 						type="checkbox"
-						bind:checked={highMrrAlertsEnabled}
-						onchange={(event) => event.currentTarget.form?.requestSubmit()}
+						checked={data.notifications.high_mrr_alerts_enabled}
 						aria-labelledby="settings-notification-title-high-mrr"
 						aria-describedby="settings-notification-desc-high-mrr"
 					/>
 					<span class="toggle__label" id="settings-notification-label-high-mrr" aria-live="polite">
-						{highMrrAlertsEnabled ? 'Enabled' : 'Disabled'}
+						{data.notifications.high_mrr_alerts_enabled ? 'Enabled' : 'Disabled'}
 					</span>
 				</span>
 			</label>
@@ -529,7 +336,7 @@
 						Receive a single daily summary of open recovery work.
 					</p>
 				</div>
-				<span class="toggle {dailyDigestEnabled ? 'toggle--active' : ''}" id="settings-notification-toggle-digest">
+				<span class="toggle {data.notifications.daily_digest_enabled ? 'toggle--active' : ''}" id="settings-notification-toggle-digest">
 					<span class="toggle__track" aria-hidden="true">
 						<span class="toggle__thumb"></span>
 					</span>
@@ -538,13 +345,12 @@
 						id="settings-notification-input-digest"
 						name="daily_digest_enabled"
 						type="checkbox"
-						bind:checked={dailyDigestEnabled}
-						onchange={(event) => event.currentTarget.form?.requestSubmit()}
+						checked={data.notifications.daily_digest_enabled}
 						aria-labelledby="settings-notification-title-digest"
 						aria-describedby="settings-notification-desc-digest"
 					/>
 					<span class="toggle__label" id="settings-notification-label-digest" aria-live="polite">
-						{dailyDigestEnabled ? 'Enabled' : 'Disabled'}
+						{data.notifications.daily_digest_enabled ? 'Enabled' : 'Disabled'}
 					</span>
 				</span>
 			</label>
@@ -593,25 +399,13 @@
 					</div>
 				{:else}
 					{#each filteredWebhookEvents as event (event.id)}
-						<div class="settings-webhook-entry">
-						<button class="webhook-event-row" type="button" id={`settings-webhook-event-${event.id}`} onclick={() => (expandedWebhookId = expandedWebhookId === event.id ? null : event.id)}>
+						<div class="webhook-event-row" id={`settings-webhook-event-${event.id}`}>
 							<span class={`webhook-event-dot ${event.dotClass}`} id={`settings-webhook-dot-${event.id}`}></span>
 							<span class="plan-badge" id={`settings-webhook-provider-${event.id}`}>{event.providerLabel}</span>
 							<span class={`webhook-event-type ${event.resultClass}`} id={`settings-webhook-type-${event.id}`}>{event.eventType}</span>
 							<span class="webhook-event-id" id={`settings-webhook-id-${event.id}`}>{event.eventId}</span>
 							<span class="webhook-event-result" id={`settings-webhook-result-${event.id}`}>{event.resultLabel}</span>
 							<span class="webhook-event-time" id={`settings-webhook-time-${event.id}`}>{event.timeLabel}</span>
-						</button>
-						{#if event.retryable}
-							<div class="settings-provider-card__actions">
-								<button class="btn btn-secondary btn-sm" type="button" onclick={() => void retryWebhookEvent(event.id)} aria-busy={retryingEventId === event.id}>
-									{retryingEventId === event.id ? 'Retrying…' : 'Retry failed event'}
-								</button>
-							</div>
-						{/if}
-						{#if expandedWebhookId === event.id}
-							<pre class="docs-code"><code>{@html jsonHighlight(event.payload)}</code></pre>
-						{/if}
 						</div>
 					{/each}
 				{/if}
@@ -624,10 +418,10 @@
 			<div class="settings-section__copy" id="settings-audit-log-copy">
 				<h2 class="settings-section__title" id="settings-audit-log-title">Audit Log</h2>
 				<p class="settings-section__desc" id="settings-audit-log-desc">
-					Workspace governance history for sensitive settings, authentication activity, and key lifecycle changes.
+					Locked workspace governance history. Full export and retention controls ship on Enterprise.
 				</p>
 			</div>
-			<span class="badge badge-violet" id="settings-audit-log-badge">90-day retention</span>
+			<span class="badge badge-violet" id="settings-audit-log-badge">Enterprise</span>
 		</div>
 		<div class="settings-section__body" id="settings-audit-log-body">
 			{#each data.auditLog as entry (entry.id)}
@@ -659,4 +453,12 @@
 			{/each}
 		</div>
 	</section>
+
+	{#if toastMessage}
+		<div class="toast-stack" id="settings-toast-stack" aria-live="polite">
+			<div class={`toast toast--${toastType}`} id="settings-toast">
+				<p class="toast__message" id="settings-toast-message">{toastMessage}</p>
+			</div>
+		</div>
+	{/if}
 </section>

@@ -143,7 +143,7 @@
 					<div class="playbooks-detail__frame-dot playbooks-detail__frame-dot--yellow" id="playbooks-detail-dot-yellow"></div>
 					<div class="playbooks-detail__frame-dot playbooks-detail__frame-dot--green" id="playbooks-detail-dot-green"></div>
 					<span class="playbooks-detail__frame-label" id="playbooks-detail-frame-label">Email Preview</span>
-					<span class="playbooks-detail__frame-applied" id="playbooks-detail-frame-applied">Live template variables preview</span>
+					<span class="playbooks-detail__frame-applied" id="playbooks-detail-frame-applied">Sample data applied</span>
 				</div>
 
 				{#if activeView === 'preview'}

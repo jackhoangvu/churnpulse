@@ -3,7 +3,11 @@
 	import { SIGNAL_CONFIGS, type ChurnSignal } from '$lib/types';
 	import { toSignal } from '$lib/signal-utils';
 	import type { ChurnSignalRow } from '$lib/types/supabase';
-	import { toast } from '$lib/stores/toast';
+
+	type Toast = {
+		id: string;
+		message: string;
+	};
 
 	interface Props {
 		orgId: string | null;
@@ -16,9 +20,19 @@
 		maximumFractionDigits: 0
 	});
 	let { orgId, onSignal }: Props = $props();
+	let toasts = $state<Toast[]>([]);
 	let hasInteracted = $state(false);
 	let channelState = $state<'idle' | 'subscribing' | 'subscribed'>('idle');
 	let supabase = $state<ReturnType<typeof createBrowserClient> | null>(null);
+
+	function addToast(message: string): void {
+		const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		toasts = [{ id, message }, ...toasts].slice(0, 3);
+
+		window.setTimeout(() => {
+			toasts = toasts.filter((toast) => toast.id !== id);
+		}, 4000);
+	}
 
 	async function playBeep(): Promise<void> {
 		if (!hasInteracted || typeof window === 'undefined') {
@@ -63,7 +77,7 @@
 		const amount = currencyFormatter.format(signal.mrr_amount / 100);
 		const message = `New ${label.toLowerCase()} signal: ${customerName} — ${amount}/mo at risk`;
 
-		toast.info(message, 'Realtime signal');
+		addToast(message);
 		onSignal?.(signal);
 		void playBeep();
 	}
@@ -144,3 +158,18 @@
 		};
 	});
 </script>
+
+<div
+	class="toast-stack"
+	class:toast-stack--empty={toasts.length === 0}
+	id="signal-feed-toasts"
+	aria-live="polite"
+	aria-atomic="false"
+	aria-relevant="additions"
+>
+	{#each toasts as toast (toast.id)}
+		<div class="toast toast--info" id={`signal-toast-${toast.id}`} role="status">
+			<p class="toast__message" id={`signal-toast-message-${toast.id}`}>{toast.message}</p>
+		</div>
+	{/each}
+</div>
