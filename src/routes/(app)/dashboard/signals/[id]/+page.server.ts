@@ -9,6 +9,7 @@ import {
   getFallbackClassification,
 } from "$lib/server/ai-classifier";
 import { decryptStoredToken } from "$lib/server/crypto";
+import { getPolarAccessToken } from "$lib/provider-utils";
 import { sendSequenceEmail } from "$lib/server/email-sender";
 import { resolveOrganization } from "$lib/server/organizations";
 import { toSignal } from "$lib/signal-utils";
@@ -114,7 +115,10 @@ async function loadCustomerContext(
   }
 
   try {
-    const accessToken = decryptStoredToken(org.polar_access_token);
+    const encryptedAccessToken = getPolarAccessToken(org);
+    const accessToken = encryptedAccessToken
+      ? decryptStoredToken(encryptedAccessToken)
+      : null;
     if (accessToken) {
       const stripe = new Stripe(accessToken);
       const customer = await stripe.customers.retrieve(

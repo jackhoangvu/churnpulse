@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { CLERK_SECRET_KEY } from "$env/static/private";
 import { CHURN_THRESHOLDS, EMAIL_CONFIG } from "$lib/constants";
 import { env } from "$lib/env";
+import { getPolarAccessToken } from "$lib/provider-utils";
 import { log, logError, logSignalDetected } from "$lib/server/logger";
 import { admin } from "$lib/server/admin";
 import { decryptStoredToken } from "$lib/server/crypto";
@@ -217,7 +218,10 @@ async function fetchCustomerContact(
   const fallbackEmail = readString(metadata.customer_email);
   const fallbackName = readString(metadata.customer_name);
 
-  const accessToken = decryptStoredToken(org.polar_access_token);
+  const encryptedAccessToken = getPolarAccessToken(org);
+  const accessToken = encryptedAccessToken
+    ? decryptStoredToken(encryptedAccessToken)
+    : null;
 
   if (!customerId || !accessToken) {
     return {

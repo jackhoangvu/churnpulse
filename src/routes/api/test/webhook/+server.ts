@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type Polar from "stripe";
 import type { RequestHandler } from "./$types";
 import { env } from "$lib/env";
+import { getPolarAccountId } from "$lib/provider-utils";
 import { admin } from "$lib/server/admin";
 import { handleApiError } from "$lib/server/error-handler";
 import { checkRateLimit } from "$lib/server/rate-limiter";
@@ -29,7 +30,7 @@ function buildTestEvent(eventType: string, org: OrganizationRow): Polar.Event {
   const base = {
     id: `evt_test_${crypto.randomUUID().replaceAll("-", "")}`,
     object: "event",
-    account: org.polar_account_id ?? undefined,
+    account: getPolarAccountId(org) ?? undefined,
     api_version: "2025-09-30.clover",
     created: Math.floor(Date.now() / 1000),
     livemode: false,

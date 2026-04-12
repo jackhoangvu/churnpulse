@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { createBrowserClient } from '$lib/supabase';
 	import { SIGNAL_CONFIGS, type ChurnSignal } from '$lib/types';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import { toSignal } from '$lib/signal-utils';
 	import type { ChurnSignalRow } from '$lib/types/supabase';
 
 	type Toast = {
 		id: string;
-		message: string;
+		title: string;
+		description: string;
+		type: 'info' | 'success' | 'warning' | 'error';
+		duration: number;
 	};
 
 	interface Props {
@@ -25,13 +29,20 @@
 	let channelState = $state<'idle' | 'subscribing' | 'subscribed'>('idle');
 	let supabase = $state<ReturnType<typeof createBrowserClient> | null>(null);
 
-	function addToast(message: string): void {
+	function addToast(toast: Omit<Toast, 'id'>): void {
 		const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		toasts = [{ id, message }, ...toasts].slice(0, 3);
+		const nextToast = { id, ...toast };
+		toasts = [nextToast, ...toasts].slice(0, 5);
 
-		window.setTimeout(() => {
-			toasts = toasts.filter((toast) => toast.id !== id);
-		}, 4000);
+		if (nextToast.type !== 'error') {
+			window.setTimeout(() => {
+				toasts = toasts.filter((item) => item.id !== id);
+			}, nextToast.duration);
+		}
+	}
+
+	function dismissToast(id: string): void {
+		toasts = toasts.filter((toast) => toast.id !== id);
 	}
 
 	async function playBeep(): Promise<void> {
@@ -75,9 +86,13 @@
 		const label = SIGNAL_CONFIGS[signal.signal_type].label;
 		const customerName = signal.customer_name ?? signal.customer_email ?? 'Polar customer';
 		const amount = currencyFormatter.format(signal.mrr_amount / 100);
-		const message = `New ${label.toLowerCase()} signal: ${customerName} — ${amount}/mo at risk`;
 
-		addToast(message);
+		addToast({
+			title: 'New risk alert',
+			description: `${customerName} · ${label} · ${amount} at risk`,
+			type: signal.mrr_amount > 50_000 ? 'warning' : 'info',
+			duration: 4000
+		});
 		onSignal?.(signal);
 		void playBeep();
 	}
@@ -162,14 +177,25 @@
 <div
 	class="toast-stack"
 	class:toast-stack--empty={toasts.length === 0}
-	id="signal-feed-toasts"
 	aria-live="polite"
 	aria-atomic="false"
 	aria-relevant="additions"
 >
 	{#each toasts as toast (toast.id)}
-		<div class="toast toast--info" id={`signal-toast-${toast.id}`} role="status">
-			<p class="toast__message" id={`signal-toast-message-${toast.id}`}>{toast.message}</p>
+		<div class={`toast toast--${toast.type}`} role="status">
+			<div class="toast__icon" aria-hidden="true">
+				<Icon name={toast.type === 'success' ? 'check' : toast.type === 'warning' ? 'warning' : toast.type === 'error' ? 'error' : 'info'} size={16} />
+			</div>
+			<div class="toast__content">
+				<p class="toast__title">{toast.title}</p>
+				<p class="toast__message">{toast.description}</p>
+			</div>
+			<button class="toast__close" type="button" aria-label="Dismiss notification" onclick={() => dismissToast(toast.id)}>
+				<Icon name="close" size={14} />
+			</button>
+			{#if toast.type !== 'error'}
+				<span class="toast__progress" style={`animation-duration:${toast.duration}ms`}></span>
+			{/if}
 		</div>
 	{/each}
 </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import SignIn from 'clerk-sveltekit/client/SignIn.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	const clerkAppearance = {
 		layout: {
@@ -29,12 +30,12 @@
 			socialButtonsBlockButtonText: 'auth-clerk-social-text'
 		},
 		variables: {
-			colorBackground: '#1a1a1f',
-			colorInputBackground: '#222229',
-			colorInputText: '#EDEDED',
-			colorText: '#EDEDED',
-			colorTextSecondary: '#A0A0AB',
-			colorPrimary: '#4F6EF7',
+			colorBackground: 'oklch(16% 0.015 255)',
+			colorInputBackground: 'oklch(18% 0.015 255)',
+			colorInputText: 'oklch(96% 0.005 255)',
+			colorText: 'oklch(96% 0.005 255)',
+			colorTextSecondary: 'oklch(68% 0.02 255)',
+			colorPrimary: 'oklch(52% 0.22 264)',
 			borderRadius: '10px'
 		}
 	} as const;
@@ -52,19 +53,7 @@
 	<div class="auth-shell" id="auth-sign-in-shell">
 		<div class="auth-stage" id="auth-sign-in-stage">
 			<div class="auth-brand" id="auth-sign-in-brand">
-				<svg
-					class="auth-brand__bolt"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.8"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-					id="auth-sign-in-bolt"
-				>
-					<path class="auth-brand__bolt-path" d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-				</svg>
+				<Icon class="auth-brand__bolt" name="bolt" size={20} />
 				<span class="auth-brand__label" id="auth-sign-in-brand-label">ChurnPulse</span>
 			</div>
 

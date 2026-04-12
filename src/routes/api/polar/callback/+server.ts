@@ -1,7 +1,10 @@
 import { isRedirect, redirect } from "@sveltejs/kit";
 import { Polar } from "@polar-sh/sdk";
 import type { RequestHandler } from "./$types";
-import { upsertProviderConnection } from "$lib/provider-utils";
+import {
+  getPolarWebhookSecret,
+  upsertProviderConnection,
+} from "$lib/provider-utils";
 import { env } from "$lib/env";
 import { admin } from "$lib/server/admin";
 import { encryptToken } from "$lib/server/crypto";
@@ -135,7 +138,7 @@ export const GET: RequestHandler = async ({ url }) => {
       type: "polar" as const,
       account_id: resolvedOrganization.id,
       access_token: encryptedAccessToken,
-      webhook_secret: organization?.polar_webhook_secret ?? "",
+      webhook_secret: organization ? getPolarWebhookSecret(organization) ?? "" : "",
       connected_at: new Date().toISOString(),
       status: "active" as const,
     };
@@ -161,10 +164,6 @@ export const GET: RequestHandler = async ({ url }) => {
           polar_connected_at: new Date().toISOString(),
         } as Json,
         providers: providers as unknown as Json,
-        polar_account_id: resolvedOrganization.id,
-        polar_access_token: encryptedAccessToken,
-        polar_refresh_token: encryptedRefreshToken,
-        polar_organization_id: resolvedOrganization.id,
       } as never)
       .eq("id", orgId);
 

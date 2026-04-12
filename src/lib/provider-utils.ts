@@ -1,4 +1,9 @@
-import type { Json, Provider, ProviderConnection } from '$lib/types/supabase';
+import type {
+	Json,
+	OrganizationRow,
+	Provider,
+	ProviderConnection
+} from '$lib/types/supabase';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -89,4 +94,67 @@ export function removeProviderConnection(
 
 export function organizationHasActiveProvider(value: Json | null): boolean {
 	return parseProviderConnections(value).some((connection) => connection.status === 'active');
+}
+
+type PolarOrgShape = Pick<
+	OrganizationRow,
+	| 'providers'
+	| 'polar_account_id'
+	| 'polar_access_token'
+	| 'polar_refresh_token'
+	| 'polar_webhook_secret'
+	| 'polar_organization_id'
+>;
+
+export function getPolarConnection(org: PolarOrgShape): ProviderConnection | null {
+	const providerConnection = getProviderConnection(org.providers, 'polar');
+
+	if (providerConnection) {
+		return providerConnection;
+	}
+
+	const accountId = org.polar_account_id ?? org.polar_organization_id ?? null;
+	const connectedAt = new Date().toISOString();
+
+	if (!accountId) {
+		return null;
+	}
+
+	const connection: ProviderConnection = {
+		type: 'polar',
+		account_id: accountId,
+		access_token: org.polar_access_token ?? '',
+		webhook_secret: org.polar_webhook_secret ?? '',
+		connected_at: connectedAt,
+		status: 'active'
+	};
+
+	if (org.polar_refresh_token) {
+		connection.refresh_token = org.polar_refresh_token;
+	}
+
+	return connection;
+}
+
+export function getPolarAccountId(org: PolarOrgShape): string | null {
+	return getPolarConnection(org)?.account_id ?? null;
+}
+
+export function getPolarAccessToken(org: PolarOrgShape): string | null {
+	const providerConnection = getProviderConnection(org.providers, 'polar');
+	return providerConnection?.access_token ?? org.polar_access_token ?? null;
+}
+
+export function getPolarRefreshToken(org: PolarOrgShape): string | null {
+	const providerConnection = getProviderConnection(org.providers, 'polar');
+	return providerConnection?.refresh_token ?? org.polar_refresh_token ?? null;
+}
+
+export function getPolarWebhookSecret(org: PolarOrgShape): string | null {
+	const providerConnection = getProviderConnection(org.providers, 'polar');
+	return providerConnection?.webhook_secret || org.polar_webhook_secret || null;
+}
+
+export function organizationHasPolarConnection(org: PolarOrgShape): boolean {
+	return Boolean(getPolarAccountId(org) || getPolarAccessToken(org));
 }

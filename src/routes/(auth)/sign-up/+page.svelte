@@ -1,5 +1,7 @@
 <script lang="ts">
 	import SignUp from 'clerk-sveltekit/client/SignUp.svelte';
+	import { page } from '$app/state';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	const clerkAppearance = {
 		layout: {
@@ -29,15 +31,21 @@
 			socialButtonsBlockButtonText: 'auth-clerk-social-text'
 		},
 		variables: {
-			colorBackground: '#1a1a1f',
-			colorInputBackground: '#222229',
-			colorInputText: '#EDEDED',
-			colorText: '#EDEDED',
-			colorTextSecondary: '#A0A0AB',
-			colorPrimary: '#4F6EF7',
+			colorBackground: 'oklch(16% 0.015 255)',
+			colorInputBackground: 'oklch(18% 0.015 255)',
+			colorInputText: 'oklch(96% 0.005 255)',
+			colorText: 'oklch(96% 0.005 255)',
+			colorTextSecondary: 'oklch(68% 0.02 255)',
+			colorPrimary: 'oklch(52% 0.22 264)',
 			borderRadius: '10px'
 		}
 	} as const;
+
+	const contextualMessage = $derived(
+		page.url.searchParams.get('demo_action')
+			? 'Create your account to start recovering real customers.'
+			: null
+	);
 </script>
 
 <svelte:head>
@@ -52,19 +60,7 @@
 	<div class="auth-shell" id="auth-sign-up-shell">
 		<div class="auth-stage" id="auth-sign-up-stage">
 			<div class="auth-brand" id="auth-sign-up-brand">
-				<svg
-					class="auth-brand__bolt"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.8"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-					id="auth-sign-up-bolt"
-				>
-					<path class="auth-brand__bolt-path" d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-				</svg>
+				<Icon class="auth-brand__bolt" name="bolt" size={20} />
 				<span class="auth-brand__label" id="auth-sign-up-brand-label">ChurnPulse</span>
 			</div>
 
@@ -88,6 +84,10 @@
 				<p class="auth-card__eyebrow" id="auth-sign-up-card-eyebrow">Start free</p>
 				<h2 class="auth-card__title" id="auth-sign-up-card-title">Create your account</h2>
 			</div>
+
+			{#if contextualMessage}
+				<p class="auth-card__context" aria-live="polite">{contextualMessage}</p>
+			{/if}
 
 			<SignUp appearance={clerkAppearance} redirectUrl="/dashboard" signInUrl="/sign-in" />
 		</div>

@@ -32,6 +32,36 @@ function serializeError(error: unknown): Record<string, unknown> {
 		};
 	}
 
+	if (typeof error === 'object' && error !== null) {
+		const candidate = error as Record<string, unknown>;
+
+		return {
+			error_name:
+				typeof candidate.name === 'string'
+					? candidate.name
+					: typeof candidate.error === 'string'
+						? candidate.error
+						: 'UnknownObjectError',
+			error_message:
+				typeof candidate.message === 'string'
+					? candidate.message
+					: typeof candidate.error_description === 'string'
+						? candidate.error_description
+						: JSON.stringify(candidate),
+			error_code: typeof candidate.code === 'string' ? candidate.code : undefined,
+			error_status:
+				typeof candidate.status === 'number'
+					? candidate.status
+					: typeof candidate.statusCode === 'number'
+						? candidate.statusCode
+						: undefined,
+			error_details:
+				typeof candidate.details === 'string'
+					? candidate.details
+					: candidate.details ?? candidate.body ?? undefined
+		};
+	}
+
 	return {
 		error_message: String(error)
 	};

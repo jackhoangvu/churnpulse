@@ -51,7 +51,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	card_failed: {
 		type: 'card_failed',
 		label: 'Card failed',
-		color: '#F05252',
+		color: 'oklch(62% 0.24 25)',
 		icon: 'credit-card-alert',
 		urgency: 'critical',
 		description: 'Payment method declined or expired'
@@ -59,7 +59,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	disengaged: {
 		type: 'disengaged',
 		label: 'Disengaged',
-		color: '#F59E0B',
+		color: 'oklch(78% 0.18 76)',
 		icon: 'activity-drop',
 		urgency: 'high',
 		description: 'No product activity in 14+ days'
@@ -67,7 +67,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	downgraded: {
 		type: 'downgraded',
 		label: 'Downgraded',
-		color: '#FB923C',
+		color: 'oklch(72% 0.18 48)',
 		icon: 'trend-down',
 		urgency: 'high',
 		description: 'Subscription plan reduced by >20%'
@@ -75,7 +75,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	paused: {
 		type: 'paused',
 		label: 'Paused',
-		color: '#818CF8',
+		color: 'oklch(66% 0.16 290)',
 		icon: 'pause',
 		urgency: 'medium',
 		description: 'Subscription collection paused'
@@ -83,7 +83,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	cancelled: {
 		type: 'cancelled',
 		label: 'Cancelled',
-		color: '#F05252',
+		color: 'oklch(62% 0.24 25)',
 		icon: 'x-circle',
 		urgency: 'critical',
 		description: 'Subscription cancelled by customer'
@@ -91,7 +91,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	high_mrr_risk: {
 		type: 'high_mrr_risk',
 		label: 'High MRR risk',
-		color: '#FF2D55',
+		color: 'oklch(58% 0.26 10)',
 		icon: 'siren',
 		urgency: 'critical',
 		description: 'High-value customer showing risk'
@@ -99,7 +99,7 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 	trial_ending: {
 		type: 'trial_ending',
 		label: 'Trial ending',
-		color: '#A78BFA',
+		color: 'oklch(72% 0.16 305)',
 		icon: 'clock',
 		urgency: 'high',
 		description: 'Free trial ends within 3 days'
@@ -109,28 +109,28 @@ export const SIGNAL_CONFIGS: Record<SignalType, SignalConfig> = {
 export const PROVIDER_META = {
 	stripe: {
 		label: 'Stripe',
-		color: '#635BFF',
+		color: 'oklch(58% 0.23 276)',
 		docsUrl: 'https://stripe.com/docs/connect',
 		oauthSupported: true,
 		webhookDocs: 'https://stripe.com/docs/webhooks'
 	},
 	paddle: {
 		label: 'Paddle',
-		color: '#0EA5E9',
+		color: 'oklch(71% 0.15 235)',
 		docsUrl: 'https://developer.paddle.com/webhooks/overview',
 		oauthSupported: false,
 		webhookDocs: 'https://developer.paddle.com/webhooks/overview'
 	},
 	lemonsqueezy: {
 		label: 'Lemon Squeezy',
-		color: '#FFC233',
+		color: 'oklch(84% 0.17 91)',
 		docsUrl: 'https://docs.lemonsqueezy.com/api/webhooks',
 		oauthSupported: false,
 		webhookDocs: 'https://docs.lemonsqueezy.com/api/webhooks'
 	},
 	polar: {
 		label: 'Polar',
-		color: '#4F6EF7',
+		color: 'oklch(55% 0.22 264)',
 		docsUrl: 'https://docs.polar.sh/integrate/webhooks',
 		oauthSupported: true,
 		webhookDocs: 'https://docs.polar.sh/integrate/webhooks'

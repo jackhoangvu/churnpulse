@@ -3,6 +3,9 @@ import type { Actions, PageServerLoad } from './$types';
 import { env } from '$lib/env';
 import { PROVIDER_META, type Provider } from '$lib/types';
 import {
+	getPolarAccountId,
+	getPolarConnection,
+	getPolarWebhookSecret,
 	getProviderConnection,
 	removeProviderConnection,
 	upsertProviderConnection
@@ -101,9 +104,8 @@ function buildIntegrationCards(org: OrganizationRow | null): IntegrationCard[] {
 	const paddleConnection = org ? getProviderConnection(org.providers, 'paddle') : null;
 	const lemonSqueezyConnection = org ? getProviderConnection(org.providers, 'lemonsqueezy') : null;
 	const appUrl = env.publicAppUrl;
-	const legacyPolarConnected = Boolean(
-		org?.polar_account_id || org?.polar_organization_id || org?.polar_access_token
-	);
+	const resolvedPolarConnection = org ? getPolarConnection(org) : null;
+	const legacyPolarConnected = Boolean(resolvedPolarConnection);
 
 	return [
 		{
@@ -111,18 +113,14 @@ function buildIntegrationCards(org: OrganizationRow | null): IntegrationCard[] {
 			label: PROVIDER_META.polar.label,
 			connectionType: 'OAuth',
 			connected: legacyPolarConnected || Boolean(polarConnection),
-			accountId:
-				org?.polar_account_id ??
-				org?.polar_organization_id ??
-				polarConnection?.account_id ??
-				null,
+			accountId: (org ? getPolarAccountId(org) : null) ?? polarConnection?.account_id ?? null,
 			connectedAt:
 				metadata.polar_connected_at ??
-				polarConnection?.connected_at ??
+				resolvedPolarConnection?.connected_at ??
 				(legacyPolarConnected ? org?.created_at ?? null : null),
 			docsUrl: PROVIDER_META.polar.docsUrl,
 			webhookUrl: `${appUrl}/api/webhooks/polar`,
-			webhookSecretSaved: Boolean(org?.polar_webhook_secret || polarConnection?.webhook_secret),
+			webhookSecretSaved: Boolean(org ? getPolarWebhookSecret(org) : null),
 			description: providerDescriptions.polar,
 			color: PROVIDER_META.polar.color
 		},
@@ -377,12 +375,7 @@ export const actions: Actions = {
 			.from('organizations')
 			.update({
 				metadata: metadata as Json,
-				providers: removeProviderConnection(org.providers, 'polar') as unknown as Json,
-				polar_account_id: null,
-				polar_access_token: null,
-				polar_refresh_token: null,
-				polar_webhook_secret: null,
-				polar_organization_id: null
+				providers: removeProviderConnection(org.providers, 'polar') as unknown as Json
 			} as never)
 			.eq('id', org.id);
 

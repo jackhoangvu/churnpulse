@@ -5,6 +5,10 @@
 	import SignedOut from 'clerk-sveltekit/client/SignedOut.svelte';
 	import UserButton from 'clerk-sveltekit/client/UserButton.svelte';
 	import type { Snippet } from 'svelte';
+	import PageTransition from '$lib/components/layout/PageTransition.svelte';
+	import MobileNav from '$lib/components/layout/MobileNav.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 
 	type NavItem = {
 		label: string;
@@ -16,6 +20,7 @@
 
 	interface Props {
 		orgName?: string;
+		userEmail?: string | null;
 		unreadCount?: number;
 		children: Snippet;
 		headerActions?: Snippet;
@@ -25,14 +30,17 @@
 		{ label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
 		{ label: 'Recovery Center', href: '/dashboard/recovery', icon: 'recovery', showCount: true },
 		{ label: 'Analytics', href: '/dashboard/analytics', icon: 'analytics' },
-		{ label: 'Monitoring', href: '/dashboard/monitoring', icon: 'monitoring' },
-		{ label: 'Email Playbooks', href: '/dashboard/playbooks', icon: 'playbooks' },
+		{ label: 'Model Health', href: '/dashboard/monitoring', icon: 'monitoring' },
+		{ label: 'Recovery Playbooks', href: '/dashboard/playbooks', icon: 'playbooks' },
 		{ label: 'Settings', href: '/dashboard/settings', icon: 'settings' },
 		{ label: 'Docs', href: '/docs', icon: 'docs', external: true }
 	];
 
-	let { orgName = 'ChurnPulse workspace', unreadCount = 0, children, headerActions }: Props = $props();
+	let { orgName = 'ChurnPulse account', userEmail = null, unreadCount = 0, children, headerActions }: Props = $props();
 	let clerkReady = $state(false);
+	let navElement = $state<HTMLElement | null>(null);
+	let inkBarTop = $state(0);
+	let inkBarHeight = $state(0);
 
 	const pathname = $derived(page.url.pathname);
 	const title = $derived(
@@ -52,35 +60,49 @@
 		return pathname === href || pathname.startsWith(`${href}/`);
 	}
 
+	function updateInkBar(): void {
+		if (!navElement) {
+			return;
+		}
+
+		const activeItem = navElement.querySelector<HTMLElement>('.nav-item--active');
+		if (!activeItem) {
+			inkBarTop = 0;
+			inkBarHeight = 0;
+			return;
+		}
+
+		inkBarTop = activeItem.offsetTop;
+		inkBarHeight = activeItem.offsetHeight;
+	}
+
 	onMount(() => {
 		clerkReady = true;
+		updateInkBar();
+		window.addEventListener('resize', updateInkBar);
+
+		return () => {
+			window.removeEventListener('resize', updateInkBar);
+		};
+	});
+
+	$effect(() => {
+		pathname;
+		updateInkBar();
 	});
 </script>
 
-<div class="app-shell" id="app-shell">
-	<aside class="sidebar" id="sidebar" aria-label="Primary navigation">
-		<a class="sidebar__logo" href="/dashboard" id="sidebar-logo" aria-label="ChurnPulse home">
-			<svg
-				class="sidebar__logo-icon"
-				width="18"
-				height="18"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="1.8"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				aria-hidden="true"
-				id="sidebar-logo-icon"
-			>
-				<path class="sidebar__logo-path" d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-			</svg>
-			<span class="sidebar__wordmark" id="sidebar-wordmark">Churn<em id="sidebar-wordmark-em">Pulse</em></span>
+<div class="app-shell">
+	<aside class="sidebar" aria-label="Primary navigation">
+		<a class="sidebar__logo" href="/dashboard" aria-label="ChurnPulse home">
+			<Icon class="sidebar__logo-icon" name="bolt" size={18} />
+			<span class="sidebar__wordmark">Churn<em>Pulse</em></span>
 		</a>
 
-		<div class="sidebar__section" id="sidebar-section-main">
-			<span class="sidebar__section-label" id="sidebar-section-label-main">Dashboard</span>
-			<nav class="sidebar__nav" id="sidebar-nav" aria-label="Main navigation">
+		<div class="sidebar__section">
+			<span class="sidebar__section-label">Account</span>
+			<nav class="sidebar__nav" bind:this={navElement} aria-label="Main navigation">
+				<span class="sidebar__ink-bar" aria-hidden="true" style={`top:${inkBarTop}px;height:${inkBarHeight}px;`}></span>
 				{#each navItems as item (item.href)}
 					<a
 						class="nav-item"
@@ -88,43 +110,12 @@
 						href={item.href}
 						target={item.external ? '_blank' : undefined}
 						rel={item.external ? 'noreferrer' : undefined}
-						id={`nav-${item.icon}`}
 						aria-current={isActive(item.href, item.external) ? 'page' : undefined}
 					>
-						<svg
-							class="nav-item__icon"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.7"
-							aria-hidden="true"
-							id={`nav-icon-${item.icon}`}
-						>
-							{#if item.icon === 'dashboard'}
-								<path class="nav-item__icon-path" d="M4 4h7v7H4zM13 4h7v5h-7zM13 11h7v9h-7zM4 13h7v7H4z" />
-							{:else if item.icon === 'recovery'}
-								<path class="nav-item__icon-path" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
-								<path class="nav-item__icon-path" d="m9 12 2 2 4-4" />
-							{:else if item.icon === 'analytics'}
-								<path class="nav-item__icon-path" d="M18 20V10M12 20V4M6 20v-6" />
-							{:else if item.icon === 'monitoring'}
-								<path class="nav-item__icon-path" d="M22 12h-4l-3 9L9 3l-3 9H2" />
-							{:else if item.icon === 'playbooks'}
-								<path class="nav-item__icon-path" d="M4 7h16M4 12h10M4 17h16" />
-								<path class="nav-item__icon-path" d="m17 9 3 3-3 3" />
-							{:else if item.icon === 'settings'}
-								<path class="nav-item__icon-path" d="M12 3v3M12 18v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M3 12h3M18 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12" />
-								<circle class="nav-item__icon-circle" cx="12" cy="12" r="3.2" />
-							{:else}
-								<path class="nav-item__icon-path" d="M14 4h6v6" />
-								<path class="nav-item__icon-path" d="M10 14 20 4" />
-								<path class="nav-item__icon-path" d="M20 14v6h-6" />
-								<path class="nav-item__icon-path" d="M4 10 14 20" />
-							{/if}
-						</svg>
-						<span class="nav-item__label" id={`nav-label-${item.icon}`}>{item.label}</span>
+						<Icon class="nav-item__icon" name={item.icon} />
+						<span class="nav-item__label">{item.label}</span>
 						{#if item.showCount && unreadCount > 0}
-							<span class="nav-item__count" id="nav-recovery-count" aria-label={`${unreadCount} at-risk accounts`}>
+							<span class="nav-item__count" aria-label={`${unreadCount} open risk alerts`}>
 								{unreadCount > 99 ? '99+' : unreadCount}
 							</span>
 						{/if}
@@ -133,23 +124,23 @@
 			</nav>
 		</div>
 
-		<div class="sidebar__bottom" id="sidebar-bottom">
+		<div class="sidebar__bottom">
 			{#if clerkReady}
 				<SignedIn let:user>
-					<div class="sidebar__user" id="sidebar-user">
-						<div class="sidebar__user-button" id="sidebar-user-button">
+					<div class="sidebar__user">
+						<div class="sidebar__user-button">
 							<UserButton afterSignOutUrl="/" />
 						</div>
-						<div class="sidebar__user-info" id="sidebar-user-info">
-							<p class="sidebar__org-name" id="sidebar-org-name">{orgName}</p>
-							<p class="sidebar__user-email" id="sidebar-user-email">
-								{user?.primaryEmailAddress?.emailAddress ?? 'Authenticated'}
+						<div class="sidebar__user-info">
+							<p class="sidebar__org-name">{orgName}</p>
+							<p class="sidebar__user-email">
+								{userEmail ?? user?.primaryEmailAddress?.emailAddress ?? 'Authenticated'}
 							</p>
 						</div>
 					</div>
 				</SignedIn>
 				<SignedOut>
-					<a class="btn btn-primary btn-full" href="/sign-in" id="sidebar-sign-in">
+					<a class="btn btn-primary btn-full" href="/sign-in">
 						Sign in
 					</a>
 				</SignedOut>
@@ -157,22 +148,33 @@
 		</div>
 	</aside>
 
-	<div class="content-column" id="content-column">
-		<header class="topbar" id="topbar">
-			<div class="topbar__copy" id="topbar-copy">
-				<p class="topbar__breadcrumb" id="topbar-breadcrumb">{breadcrumb.join(' / ')}</p>
-				<h1 class="topbar__title" id="topbar-title">{title}</h1>
+	<div class="content-column">
+		<header class="topbar">
+			<div class="topbar__copy">
+				<p class="topbar__breadcrumb">
+					{#each breadcrumb as crumb, index (crumb)}
+						<span>{crumb}</span>
+						{#if index < breadcrumb.length - 1}
+							<Icon name="chevron-right" size={12} />
+						{/if}
+					{/each}
+				</p>
+				<p class="topbar__title">{title}</p>
 			</div>
-			<div class="topbar__actions" id="topbar-actions">
+			<div class="topbar__actions">
+				<ThemeToggle size="sm" />
 				{#if headerActions}
 					{@render headerActions()}
 				{/if}
 			</div>
 		</header>
 
-		<main class="content-area" id="content-area">
-			<h1 class="sr-only" id="content-area-title">{title} - ChurnPulse</h1>
-			{@render children()}
+		<main class="content-area" id="main-content" tabindex="-1">
+			<PageTransition>
+				{@render children()}
+			</PageTransition>
 		</main>
+
+		<MobileNav {unreadCount} />
 	</div>
 </div>

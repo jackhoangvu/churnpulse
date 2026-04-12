@@ -40,13 +40,9 @@ export default defineConfig(({ mode }) => {
 	const publicUrl = resolvePublicUrl(env.PUBLIC_APP_URL);
 	const allowedHosts = Array.from(
 		new Set(
-			[
-				defaultHost,
-				'127.0.0.1',
-				publicUrl?.hostname,
-				'.ngrok-free.dev',
-				'.ngrok-free.app'
-			].filter((value): value is string => Boolean(value))
+			[defaultHost, '127.0.0.1', publicUrl?.hostname].filter(
+				(value): value is string => Boolean(value)
+			)
 		)
 	);
 

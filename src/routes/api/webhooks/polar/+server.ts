@@ -2,6 +2,10 @@ import { json } from "@sveltejs/kit";
 import Stripe from "stripe";
 import type { RequestHandler } from "./$types";
 import { env } from "$lib/env";
+import {
+  getPolarAccountId,
+  getPolarWebhookSecret,
+} from "$lib/provider-utils";
 import { admin } from "$lib/server/admin";
 import { log, logError } from "$lib/server/logger";
 import { checkRateLimit } from "$lib/server/rate-limiter";
@@ -42,14 +46,14 @@ async function resolveOrganization(
   const { data, error } = await admin
     .from("organizations")
     .select("*")
-    .eq("polar_account_id", accountId)
-    .maybeSingle();
+    .not("providers", "is", null);
 
   if (error) {
     throw error;
   }
 
-  return (data as unknown as OrganizationRow | null) ?? null;
+  const organizations = (data as unknown as OrganizationRow[] | null) ?? [];
+  return organizations.find((organization) => getPolarAccountId(organization) === accountId) ?? null;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -66,7 +70,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
   try {
     const organization = await resolveOrganization(candidateAccountId);
-    if (!organization?.polar_webhook_secret) {
+    const webhookSecret = organization ? getPolarWebhookSecret(organization) : null;
+    if (!organization || !webhookSecret) {
       log(
         "warn",
         "polar-webhook",
@@ -88,7 +93,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const event = polar.webhooks.constructEvent(
       payload,
       signature,
-      organization.polar_webhook_secret,
+      webhookSecret,
     );
 
     if (await polarEventAlreadyProcessed(event.id)) {

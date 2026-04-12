@@ -383,12 +383,12 @@
 				Go to Settings -> Polar or Integrations -> click "Test webhook". This fires a synthetic
 				<code class="docs-code">invoice.payment_failed</code> event through the full pipeline.
 			</p>
-			<p class="docs-paragraph" id="docs-ngrok-copy">
-				For local development, use ngrok or Cloudflare Tunnel to expose your local server:
+			<p class="docs-paragraph" id="docs-tunnel-copy">
+				For local development, use Cloudflare Tunnel to expose your local server:
 			</p>
-			<div class="docs-code" id="docs-ngrok">
-				ngrok http 5173
-				# Then set PUBLIC_APP_URL=https://your-subdomain.ngrok-free.app in .env
+			<div class="docs-code" id="docs-tunnel">
+				cloudflared tunnel --url http://localhost:5173
+				# Then set PUBLIC_APP_URL=https://your-subdomain.trycloudflare.com in .env
 			</div>
 		</article>
 	</div>

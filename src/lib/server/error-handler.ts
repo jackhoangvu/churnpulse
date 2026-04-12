@@ -1,5 +1,6 @@
 import { env } from '$lib/env';
 import type { Organization } from '$lib/types';
+import { getPolarAccessToken } from '$lib/provider-utils';
 
 type ErrorDetails = {
 	status: number;
@@ -103,7 +104,7 @@ export function assertOrg(org: Organization | null): asserts org is Organization
 }
 
 export function assertPolarConnected(org: Organization): void {
-	if (!org.polar_access_token) {
+	if (!getPolarAccessToken(org)) {
 		throw new ApiError({
 			status: 400,
 			code: 'polar_not_connected',
